@@ -507,6 +507,12 @@ export function MonacoHome() {
                 Dispatch
               </button>
               {session?.user ? (
+                isMobile ? (
+                  // Phone: the profile avatar doesn't fit the compact nav — plain-text log out instead.
+                  <button onClick={() => signOut()} style={navText} className="opacity-85 transition-opacity hover:opacity-100">
+                    Log out
+                  </button>
+                ) : (
                 <div className="relative">
                   <button
                     onClick={() => setAcctMenu((v) => !v)}
@@ -538,6 +544,7 @@ export function MonacoHome() {
                     </>
                   )}
                 </div>
+                )
               ) : (
                 <button
                   onClick={() => signIn("google")}
