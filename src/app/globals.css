@@ -147,6 +147,36 @@ body {
   display: none !important;
 }
 
+/* Phone stack: step every card's text up one notch for legibility. Scoped to .static-card
+   (which only renders in the mobile stack), so desktop and the nav/logo — both outside these
+   wrappers — are untouched. Keyed to the exact arbitrary sizes the cards use. */
+@media (max-width: 767px) {
+  .static-card .text-\[8\.5px\]  { font-size: 10.5px !important; }
+  .static-card .text-\[9px\]     { font-size: 11px !important; }
+  .static-card .text-\[9\.5px\]  { font-size: 11.5px !important; }
+  .static-card .text-\[10px\]    { font-size: 12px !important; }
+  .static-card .text-\[10\.5px\] { font-size: 12.5px !important; }
+  .static-card .text-\[11px\]    { font-size: 13px !important; }
+  .static-card .text-\[11\.5px\] { font-size: 14px !important; }
+  .static-card .text-\[12px\]    { font-size: 14px !important; }
+  .static-card .text-\[12\.5px\] { font-size: 15px !important; }
+  .static-card .text-\[13px\]    { font-size: 15px !important; }
+  .static-card .text-\[13\.5px\] { font-size: 15.5px !important; }
+  .static-card .text-\[14px\]    { font-size: 16px !important; }
+  .static-card .text-\[14\.5px\] { font-size: 16.5px !important; }
+  .static-card .text-\[15px\]    { font-size: 17px !important; }
+  .static-card .text-\[16px\]    { font-size: 18px !important; }
+  .static-card .text-\[16\.5px\] { font-size: 18.5px !important; }
+  .static-card .text-\[18px\]    { font-size: 20px !important; }
+  .static-card .text-\[19px\]    { font-size: 21px !important; }
+  .static-card .text-\[20px\]    { font-size: 22px !important; }
+  .static-card .text-\[22px\]    { font-size: 24px !important; }
+  .static-card .text-\[24px\]    { font-size: 26px !important; }
+  .static-card .text-\[25px\]    { font-size: 27px !important; }
+  .static-card .text-\[26px\]    { font-size: 28px !important; }
+  .static-card .text-\[28px\]    { font-size: 30px !important; }
+}
+
 /* Four-dot bounce loader (Signal Search) — dots muted to the card's text tone. */
 .dot-loader {
   height: 18px;

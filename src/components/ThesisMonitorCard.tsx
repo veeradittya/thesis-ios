@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { cn } from "@/lib/utils";
-import { useMovableCard } from "@/components/ui/useMovableCard";
+import { useMovableCard, StaticLayoutContext } from "@/components/ui/useMovableCard";
 
 // Daily Briefing — reads the scheduled agent's pre-computed output (portfolio overview memo + each
 // holding's shared per-asset research) from Turso via /api/monitor and shows it with progressive
 // disclosure. No LLM runs on open. The last payload is cached in localStorage so the card paints
-// instantly and only re-renders when the data actually changes.
+// instantly and only re-renders when the data actually changes. On the phone stack (StaticLayout)
+// the card grows to fit ALL holdings (no inner scroll); global .static-card CSS steps text up a notch.
 
 const VERDICT_LABEL: Record<string, string> = { holds_up: "Holds up", weakening: "Weakening", at_risk: "At risk", watch: "Watch" };
 const VERDICT_STYLE: Record<string, string> = { holds_up: "text-emerald-400", weakening: "text-amber-300", at_risk: "text-rose-400", watch: "text-[#8a8a8a]" };
@@ -69,12 +70,12 @@ export function ThesisMonitorCard({
   width?: number;
   height?: number;
 }) {
+  const isStatic = useContext(StaticLayoutContext); // true in the phone stack → grow to fit content
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("monitor", { x, y, w: width, h: height }, { minW: 340, minH: 280 });
   const [data, setData] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [openRows, setOpenRows] = useState<Set<string>>(new Set());
-  const [memoOpen, setMemoOpen] = useState(false);
   const lastJson = useRef<string>("");
 
   useEffect(() => {
@@ -116,37 +117,36 @@ export function ThesisMonitorCard({
   const toggle = (t: string) => setOpenRows((p) => { const n = new Set(p); if (n.has(t)) n.delete(t); else n.add(t); return n; });
 
   const results = data?.results ?? [];
-  const memo = data?.memo ? plain(data.memo) : "";
   const stamp = fmtDateTime(data?.updatedAt ?? null);
 
   return (
     <div
       onPointerDown={raise}
-      style={style}
-      className="fade-in absolute flex flex-col overflow-hidden rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)]"
+      style={isStatic ? undefined : style}
+      className={cn(
+        "fade-in flex flex-col overflow-hidden rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)]",
+        isStatic ? "relative w-full" : "absolute",
+      )}
     >
       {/* header — drag handle */}
       <div {...dragHandle} className="flex shrink-0 cursor-move touch-none select-none items-baseline justify-between gap-3 px-5 pt-4 pb-3">
         <h2 className="text-[16px] font-semibold text-white">Daily Briefing</h2>
       </div>
 
-      {/* body */}
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-2">
+      {/* body — scrolls within a fixed height on desktop; grows to fit on the phone stack */}
+      <div className={cn("no-scrollbar px-5", isStatic ? "pb-4" : "min-h-0 flex-1 overflow-y-auto pb-2")}>
         {loading && !data && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Loading briefing…</p>}
         {err && !results.length && <p className="mt-10 text-center text-[13px] text-rose-400">{err}</p>}
         {data && !results.length && !loading && !err && (
           <p className="mt-10 text-center text-[12px] text-[#666]">Your briefing runs each morning — check back soon.</p>
         )}
 
-        {/* dated portfolio-state overview → tap for the full note */}
-        {memo && (
-          <button onClick={() => setMemoOpen((v) => !v)} className="mb-1 w-full border-b border-white/[0.06] pb-3 pt-0.5 text-left">
+        {/* dated portfolio-state overview — shown in full, justified, never truncated */}
+        {data?.memo && (
+          <div className="mb-1 w-full border-b border-white/[0.06] pb-3 pt-0.5">
             {stamp && <p className="text-[9px] uppercase tracking-wider text-[#8a8a8a]">{stamp}</p>}
-            <p className={cn("mt-1 text-[12.5px] leading-snug text-white/90", !memoOpen && "line-clamp-3")}>
-              {memoOpen ? renderLinked(data!.memo!) : memo}
-            </p>
-            {!memoOpen && memo.length > 150 && <span className="mt-1 inline-block text-[10px] text-[#8a8a8a]">More ↓</span>}
-          </button>
+            <p className="mt-1 text-justify text-[12.5px] leading-snug text-white/90">{renderLinked(data.memo)}</p>
+          </div>
         )}
 
         {/* per-holding glance rows → tap to expand */}
@@ -188,7 +188,7 @@ export function ThesisMonitorCard({
         })}
       </div>
 
-      {/* resize handle */}
+      {/* resize handle (hidden on the phone stack via .static-card CSS) */}
       <div {...resizeHandle} className="absolute bottom-0 right-0 z-20 flex h-7 w-7 cursor-nwse-resize touch-none items-end justify-end p-1.5 text-white/40 transition-colors hover:text-white/80" title="Drag to resize">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />

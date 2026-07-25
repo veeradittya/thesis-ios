@@ -6,6 +6,7 @@ import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { LedgerCard } from "@/components/LedgerCard";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
+import { BriefReveal } from "@/components/BriefReveal";
 import { PortfolioMarketsCard } from "@/components/PortfolioMarketsCard";
 import { MarketDetailCard, type OpenMarket } from "@/components/MarketDetailCard";
 import { WhaleCard } from "@/components/WhaleCard";
@@ -53,9 +54,11 @@ function cleanCompany(name: string): string {
 
 // In-flow wrapper for a card in the mobile stack: reserves the card's readable height
 // while the card itself (absolute + 100%×100% under StaticLayoutContext) fills it.
-function MobileSlot({ h, children }: { h: number; children: React.ReactNode }) {
+function MobileSlot({ h, auto, children }: { h?: number; auto?: boolean; children: React.ReactNode }) {
+  // `auto` → no fixed height; the wrapper grows to the (in-flow) card's content (used by the
+  // Daily Briefing so all holdings fit without an inner scroll).
   return (
-    <div className="static-card relative w-full shrink-0" style={{ height: h }}>
+    <div className="static-card relative w-full shrink-0" style={auto ? undefined : { height: h }}>
       {children}
     </div>
   );
@@ -124,6 +127,9 @@ export function MonacoHome() {
   // Auth (Google sign-in) + the account dropdown.
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
+  const [mobilePage, setMobilePage] = useState<"brief" | "portfolio">("brief"); // phone-only: which stack to show
+  const [navCondensed, setNavCondensed] = useState(false); // phone Brief: nav shrinks on scroll-down
+  useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
   const userId = session?.user?.id ?? null;
   const authed = !!userId; // authenticated client → editable, per-account, persisted ledger
   const scope = authed ? `u.${userId}` : null; // localStorage namespace for this account
@@ -412,6 +418,8 @@ export function MonacoHome() {
     fontSize: "clamp(12px, calc(7.43px + 0.446vw), 16px)",
     letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)",
   };
+  // Phone Brief page: the nav pill shrinks while scrolling down (navCondensed), restores on scroll-up.
+  const navSmall = isMobile && mobilePage === "brief" && navCondensed;
 
   // Compact portfolio context handed to the chat assistant.
   const portfolioCtx = ledger
@@ -442,10 +450,10 @@ export function MonacoHome() {
       <header className="pointer-events-none fixed inset-x-0 top-6 z-50 w-full px-4">
         <div className="mx-auto flex w-full max-w-[1920px] flex-col items-center">
           <div
-            className="pointer-events-auto relative flex items-center rounded-[16px] transition-all duration-300"
+            className="pointer-events-auto relative flex items-center rounded-[16px] transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
             style={{
               width: "min(100%, 855px)",
-              height: 55,
+              height: navSmall ? 38 : 55,
               backgroundColor: "#3a3a3a66",
               backdropFilter: "blur(24px)",
               WebkitBackdropFilter: "blur(24px)",
@@ -453,25 +461,45 @@ export function MonacoHome() {
           >
             {/* left links — tighter gaps/padding on phones so the pill scales proportionally */}
             <nav className="flex flex-1 shrink-0 items-center justify-start gap-4 pl-4 sm:gap-8 sm:pl-[25px]">
+              {/* mobile (<768): Brief / Portfolio page tabs */}
               <button
-                onClick={() => (isMobile ? window.scrollTo({ top: 0, behavior: "smooth" }) : mainRef.current?.scrollTo({ left: 0, top: 0, behavior: "smooth" }))}
+                onClick={() => { setMobilePage("brief"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 style={navText}
-                className="capitalize opacity-80 transition-opacity hover:opacity-100"
+                className={`capitalize transition-opacity md:hidden ${mobilePage === "brief" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
+              >
+                Brief
+              </button>
+              <button
+                onClick={() => { setMobilePage("portfolio"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                style={navText}
+                className={`capitalize transition-opacity md:hidden ${mobilePage === "portfolio" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
               >
                 Portfolio
               </button>
-              <button onClick={() => showToast("Plays — coming soon")} style={navText} className="capitalize opacity-80 transition-opacity hover:opacity-100">
+              {/* desktop (≥768): Portfolio (scroll home) / Plays */}
+              <button
+                onClick={() => mainRef.current?.scrollTo({ left: 0, top: 0, behavior: "smooth" })}
+                style={navText}
+                className="hidden capitalize opacity-80 transition-opacity hover:opacity-100 md:block"
+              >
+                Portfolio
+              </button>
+              <button onClick={() => showToast("Plays — coming soon")} style={navText} className="hidden capitalize opacity-80 transition-opacity hover:opacity-100 md:block">
                 Plays
               </button>
             </nav>
 
             {/* center logo — serif all-caps wordmark (Monaco style); scales down on phones */}
-            <button
-              className="absolute left-1/2 z-10 -translate-x-1/2 text-white"
-              style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "clamp(17px, 1.8vw + 10px, 26px)", fontWeight: 500, letterSpacing: "0.05em", lineHeight: 1 }}
-            >
-              THESIS
-            </button>
+            {/* Centering lives on the wrapper; the scale lives on the inner button so they don't
+                fight. Scaling (GPU, sub-pixel) is far smoother than animating font-size. */}
+            <div className="absolute left-1/2 z-10 -translate-x-1/2">
+              <button
+                className="text-white"
+                style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "clamp(17px, 1.8vw + 10px, 26px)", fontWeight: 500, letterSpacing: "0.05em", lineHeight: 1, transformOrigin: "center", transform: navSmall ? "scale(0.82)" : "scale(1)", transition: "transform 380ms cubic-bezier(0.22,1,0.36,1)" }}
+              >
+                THESIS
+              </button>
+            </div>
 
             {/* right actions — Dispatch (text; hidden on phones), then Log in / account (oval pill, extreme right) */}
             <div className="flex flex-1 shrink-0 items-center justify-end gap-4 pr-4 sm:gap-8 sm:pr-[25px]">
@@ -513,10 +541,10 @@ export function MonacoHome() {
               ) : (
                 <button
                   onClick={() => signIn("google")}
-                  className="inline-flex items-center justify-center whitespace-nowrap rounded-[42px] bg-black text-white transition-colors hover:bg-white hover:text-black"
+                  className={`inline-flex items-center justify-center whitespace-nowrap transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${navSmall ? "text-white/85 hover:text-white" : "rounded-[42px] bg-black text-white hover:bg-white hover:text-black"}`}
                   style={{
-                    height: 40,
-                    padding: "9px 16px",
+                    height: navSmall ? 24 : 40,
+                    padding: navSmall ? "0px" : "9px 16px",
                     fontWeight: 400,
                     lineHeight: 1.4,
                     fontSize: "clamp(12px, calc(7.43px + 0.446vw), 16px)",
@@ -554,8 +582,14 @@ export function MonacoHome() {
           // Mobile (<768px): full-width cards in normal flow, natively scrollable; drag,
           // resize and canvas interactions are disabled (StaticLayoutContext).
           <StaticLayoutContext.Provider value={true}>
-            <div className="flex flex-col gap-3.5 px-3.5 pb-8 pt-24">
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.monitor}><ThesisMonitorCard user={MONITOR_USER} /></MobileSlot>
+            {mobilePage === "brief" ? (
+              // "Brief" tab — EXPERIMENT: the daily-brief text as a sticky-scroll reveal, one chunk at a
+              // time. Full-bleed (no top padding) so the text slides UNDER the liquid-glass nav. Swap
+              // back to <ThesisMonitorCard/> to revert.
+              <BriefReveal user={MONITOR_USER} onCondense={setNavCondensed} />
+            ) : (
+              // "Portfolio" tab — everything else (ledger onward), without the briefing.
+              <div className="flex flex-col gap-3.5 px-3.5 pb-8 pt-24">
               <MobileSlot h={MOBILE_CARD_HEIGHTS.ledger}><LedgerCard data={ledger} editable onChange={setLedger} /></MobileSlot>
 
               {/* Prediction-market trio (markets · macro · search) — each immediately followed by
@@ -598,7 +632,8 @@ export function MonacoHome() {
               ))}
 
               <MobileSlot h={MOBILE_CARD_HEIGHTS.hours}><MarketHoursCard /></MobileSlot>
-            </div>
+              </div>
+            )}
           </StaticLayoutContext.Provider>
         ) : (
           <div
