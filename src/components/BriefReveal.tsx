@@ -3,19 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { motion, useMotionValueEvent, useScroll } from "motion/react";
-import { cn } from "@/lib/utils";
 
 // EXPERIMENT (mobile Brief page only): the daily-brief text as a sticky-scroll reveal — one chunk
-// at a time (headline, then TSLA, then each holding). The active chunk shows at full strength; the
+// at a time (headline takeaways, then each holding). The active chunk shows at full strength; the
 // rest dim out, so the reader follows a little text at a time. Text sits directly on the page's
 // black background (no card). Mechanism adapted from Aceternity's Sticky Scroll.
 
-function riskColor(r: number | null): string {
-  if (r == null) return "text-[#6b6b6b]";
-  if (r >= 70) return "text-rose-400";
-  if (r >= 45) return "text-amber-300";
-  return "text-emerald-400";
-}
 // Drop em dashes (—) — replace with a comma so clauses still read cleanly. En dashes (date ranges) stay.
 const deDash = (s: string) => s.replace(/\s*—\s*/g, ", ");
 // Render prose with inline [text](url) links (no underline — links read as plain text).
@@ -93,10 +86,27 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
     });
   }
   if (data?.memo) {
-    // Second chunk: the headline overview.
+    // Second chunk: the headline — the day's key takeaways, one per line, highlighted + spaced.
+    const takeaways = deDash(data.memo).split(/\n+/).map((s) => s.trim()).filter(Boolean);
     sections.push({
       key: "headline",
-      node: <p className="text-[19px] leading-relaxed text-white/90">{renderLinked(deDash(data.memo))}</p>,
+      node: (
+        <div className="space-y-6">
+          {takeaways.map((t, i) => {
+            // Split each takeaway at its first sentence: the key sentence stays bright white; any
+            // supporting context after it is dimmed a step so the takeaway itself stands out.
+            const m = t.match(/^([\s\S]*?[.!?])\s+([\s\S]+)$/);
+            const head = m ? m[1] : t;
+            const tail = m ? m[2] : "";
+            return (
+              <p key={i} className="text-[19px] leading-relaxed">
+                <span className="text-white">{renderLinked(head)}</span>
+                {tail && <span className="text-white/50"> {renderLinked(tail)}</span>}
+              </p>
+            );
+          })}
+        </div>
+      ),
     });
   }
   for (const r of results) {
@@ -104,12 +114,7 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
       key: r.ticker,
       node: (
         <>
-          <div className="flex items-baseline gap-2.5">
-            <span className="text-[24px] font-semibold text-white">{r.ticker}</span>
-            {r.risk != null && (
-              <span className="text-[15px] tabular-nums text-[#6b6b6b]">Risk <span className={cn("font-medium", riskColor(r.risk))}>{r.risk}</span></span>
-            )}
-          </div>
+          <span className="text-[24px] font-semibold text-white">{r.ticker}</span>
           {/* Asset paragraph: linked ("highlighted") phrases stay pure white; the connecting prose
               is a step darker (70%) than the headline to give each paragraph internal hierarchy. */}
           <p className="mt-4 text-[18px] leading-relaxed text-white/70">{renderLinked(deDash(r.rationale))}</p>
