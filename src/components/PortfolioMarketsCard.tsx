@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MarketsPayload, MarketLite } from "@/lib/oddpool";
 import type { ParsedHolding } from "@/lib/parsePortfolio";
+import type { EventStub } from "@/components/EventDetailCard";
 import { useMovableCard } from "@/components/ui/useMovableCard";
 
 // Markets thinner than this (trade volume, USD) are hidden — too illiquid to be worth surfacing.
@@ -26,6 +27,7 @@ export function PortfolioMarketsCard({
   width = 520,
   height = 560,
   onOpenMarket,
+  onOpenEvent,
 }: {
   holdings: ParsedHolding[];
   x?: number;
@@ -33,6 +35,7 @@ export function PortfolioMarketsCard({
   width?: number;
   height?: number;
   onOpenMarket: (market: MarketLite, ticker: string) => void;
+  onOpenEvent?: (ev: EventStub) => void;
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("markets", { x, y, w: width, h: height }, { minW: 360, minH: 260 });
 
@@ -124,19 +127,34 @@ export function PortfolioMarketsCard({
                 </div>
                 <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{a.count} mkts</span>
               </div>
-              {shown.map((m) => (
-                <button
-                  key={m.market_id}
-                  onClick={() => onOpenMarket(m, a.ticker)}
-                  className="-mx-2 flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
-                >
-                  <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{m.question}</span>
-                  <span className={cn("mt-px w-9 shrink-0 text-right text-[12px] tabular-nums", (m.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white")}>
-                    {pct(m.yes)}
-                  </span>
-                  <span className="mt-px w-12 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(m.volume)}</span>
-                </button>
-              ))}
+              {shown.map((m) =>
+                m.eventCount ? (
+                  // Multi-outcome event → one row that opens the whole event (outcomes are labeled inside)
+                  <button
+                    key={m.event_id}
+                    onClick={() => onOpenEvent?.({ event_id: m.event_id, exchange: m.exchange, title: m.question, category: null })}
+                    className="-mx-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
+                  >
+                    <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{m.question}</span>
+                    <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/[0.07] py-0.5 pl-2 pr-1 text-[10px] font-medium text-[#cdcdcd]">
+                      {m.eventCount} markets
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    key={m.market_id}
+                    onClick={() => onOpenMarket(m, a.ticker)}
+                    className="-mx-2 flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
+                  >
+                    <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{m.question}</span>
+                    <span className={cn("mt-px w-9 shrink-0 text-right text-[12px] tabular-nums", (m.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white")}>
+                      {pct(m.yes)}
+                    </span>
+                    <span className="mt-px w-12 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(m.volume)}</span>
+                  </button>
+                ),
+              )}
               {a.markets.length > 8 && (
                 <button onClick={() => toggle(a.ticker)} className="mt-1 pl-3.5 text-[10px] text-[#8a8a8a] transition-colors hover:text-white">
                   {isExp ? "Show less" : `+${a.markets.length - 8} more`}

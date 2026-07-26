@@ -370,6 +370,7 @@ export interface MarketLite {
   volume: number | null;
   liquidity: number | null;
   event_id: string;
+  eventCount?: number; // set when this row stands in for a multi-outcome event (N sub-markets, same question)
 }
 export interface MarketsAsset {
   ticker: string;
@@ -445,6 +446,24 @@ function assetDefsFor(holdings: HoldingLite[]): MarketAssetDef[] {
   return out;
 }
 
+// Group key for collapsing look-alike markets: lower-case the question and strip resolution-date
+// phrases ("on August 31", "by end of July 2026", "week of July 27 2026", stray years) so markets
+// that differ ONLY by date share a key. Thresholds / entities / HIGH-LOW are preserved, so genuinely
+// different bets stay distinct.
+const MONTHS_RE = "january|february|march|april|may|june|july|august|september|october|november|december";
+function normalizeQuestion(q: string): string {
+  const date = `(?:${MONTHS_RE})\\s+\\d{1,2}(?:st|nd|rd|th)?(?:,?\\s*\\d{4})?`;
+  return (q || "")
+    .toLowerCase()
+    .replace(new RegExp(`\\b(?:on|by|before|after|through|until|as of|end of|week of)\\s+${date}`, "g"), "")
+    .replace(new RegExp(`\\b(?:end of|week of)\\s+(?:${MONTHS_RE})(?:\\s+\\d{4})?`, "g"), "")
+    .replace(new RegExp(`\\b${date}`, "g"), "")
+    .replace(/\b20\d{2}\b/g, "")
+    .replace(/[?.,]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function fetchMarketsFor(a: MarketAssetDef): Promise<MarketsAsset | null> {
   let ms: OPMarket[];
   try {
@@ -465,8 +484,31 @@ async function fetchMarketsFor(a: MarketAssetDef): Promise<MarketsAsset | null> 
     }))
     .filter((m) => m.yes != null)
     .sort((x, y) => (y.volume || 0) - (x.volume || 0));
-  if (!active.length) return null;
-  return { ticker: a.ticker, label: a.label, count: active.length, markets: active };
+  // Collapse look-alike rows. Group by date-normalized question, then:
+  //  • group shares ONE event_id → a multi-outcome event (e.g. a Kalshi earnings-mention event whose
+  //    sub-markets all carry the same generic question) → one row tagged with its size (eventCount)
+  //    that opens the whole event (outcomes are named by ticker suffix inside the detail card).
+  //  • group spans DIFFERENT event_ids → the same market repeated across dates ("Will NVIDIA be the
+  //    largest company … on July 31 / August 31 / December 31?") → keep just the highest-volume one.
+  // `active` is volume-desc, so group[0] is the top member and grouping preserves that order.
+  const groups = new Map<string, MarketLite[]>();
+  for (const m of active) {
+    const key = normalizeQuestion(m.question);
+    if (!key) continue;
+    const g = groups.get(key);
+    if (g) g.push(m);
+    else groups.set(key, [m]);
+  }
+  const markets: MarketLite[] = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) { markets.push(g[0]); continue; }
+    const sameEvent = g.every((m) => m.event_id === g[0].event_id);
+    if (sameEvent) markets.push({ ...g[0], yes: null, volume: g.reduce((s, m) => s + (m.volume || 0), 0), eventCount: g.length });
+    else markets.push(g[0]);
+  }
+  markets.sort((x, y) => (y.volume || 0) - (x.volume || 0)); // event rows now carry summed volume
+  if (!markets.length) return null;
+  return { ticker: a.ticker, label: a.label, count: markets.length, markets };
 }
 
 // Per-portfolio cache keyed by the resolved ticker set (10-min TTL). A single global cache would

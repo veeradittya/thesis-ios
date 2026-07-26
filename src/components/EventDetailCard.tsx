@@ -130,8 +130,13 @@ export function EventDetailCard({
 
   const outcomes = detail?.outcomes || [];
   const byMkt = new Map(outcomes.map((o) => [o.market_id, o] as const));
-  // Concise labels shared by the chart legend/tooltip + whale chart (common-affix strip).
-  const shortLabels = labelOutcomes(outcomes.map((o) => o.question));
+  // Concise labels shared by the chart legend/tooltip + whale chart (common-affix strip). When every
+  // outcome carries the same question (e.g. a Kalshi "mention" event), the affix strip collapses to
+  // identical/blank labels — fall back to the market_id suffix (GEMI, IPHO, SIRI…) so each outcome
+  // is still named/distinguishable.
+  const rawLabels = labelOutcomes(outcomes.map((o) => o.question));
+  const suffixLabels = outcomes.length > 1 && new Set(rawLabels.map((l) => (l || "").trim().toLowerCase())).size <= 1;
+  const shortLabels = suffixLabels ? outcomes.map((o) => shortTicker(o.market_id)) : rawLabels;
   const labelByMkt = new Map(outcomes.map((o, i) => [o.market_id, shortLabels[i]] as const));
   // Server already dropped outdated outcomes + capped to the top 5. Give each series a
   // live tail (the current YES quote) so the line tip tracks the latest price.
@@ -213,7 +218,7 @@ export function EventDetailCard({
                 title="Open market detail"
                 className="-mx-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
               >
-                <span className="line-clamp-1 min-w-0 flex-1 text-[12px] text-white/90">{o.question}</span>
+                <span className="line-clamp-1 min-w-0 flex-1 text-[12px] text-white/90">{suffixLabels ? shortTicker(o.market_id) : o.question}</span>
                 <span className="w-14 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(o.volume)}</span>
                 <span className={cn("w-9 shrink-0 text-right text-[12px] font-semibold tabular-nums", (o.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white")}>{pct(o.yes)}</span>
               </button>

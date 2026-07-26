@@ -23,6 +23,7 @@ import { ContextMenu, type MenuItem } from "@/components/ContextMenu";
 import { EventDetailCard, type EventStub } from "@/components/EventDetailCard";
 import { SearchCard, type SearchMode } from "@/components/SearchCard";
 import { SignalSearchCard } from "@/components/SignalSearchCard";
+import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
@@ -129,6 +130,7 @@ export function MonacoHome() {
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio">("brief"); // phone-only: which stack to show
+  const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
   // Nav-condense on scroll — the same protocol BriefReveal uses (shrink after scrolling down past a
@@ -645,51 +647,75 @@ export function MonacoHome() {
                 <PortfolioLedger data={ledger} onChange={setLedger} />
               </div>
             ) : (
-              // "Dashboard" tab — every other card (without the ledger, without the briefing).
+              // "Dashboard" tab — split into three sliding sub-tabs: News · Prediction Markets · Extra.
               <div className="flex flex-col gap-3.5 px-3.5 pb-8 pt-24">
-              {/* Portfolio Headlines leads the Dashboard stack — the day's news read comes first. */}
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.news}><NewsAlertCard query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} /></MobileSlot>
-              {openArticles.map((a) => (
-                <MobileSlot key={a.id} h={600}><ArticleCard item={a} onClose={() => closeArticle(a.id)} /></MobileSlot>
-              ))}
-              {openSignals.map((a) => (
-                <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
-              ))}
+              <DashboardTabs active={dashTab} onChange={setDashTab} />
 
-              {/* Prediction-market trio (markets · macro · search) — each immediately followed by
-                  the cards it spawns, so a spawned card opens right after its origin card. */}
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.markets}><PortfolioMarketsCard holdings={ledger.holdings} onOpenMarket={openMarket} /></MobileSlot>
-              {openMarkets.map((m) => (
-                <MobileSlot key={m.market_id} h={560}><MarketDetailCard market={m} onClose={() => closeMarket(m.market_id)} /></MobileSlot>
-              ))}
-
-              {macroOpen && (
-                <MobileSlot h={MOBILE_CARD_HEIGHTS.macro}><MacroSignalsCard onClose={closeMacro} onOpenEvent={openMacroEvent} /></MobileSlot>
+              {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
+                  opens the article as a blurred full-screen overlay (rendered below), not inline. */}
+              {dashTab === "news" && (
+                <>
+                  <NewsAlertCard embedded query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} />
+                  {openSignals.map((a) => (
+                    <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
+                  ))}
+                </>
               )}
-              {openMacroEvents.map((ev) => (
-                <MobileSlot key={ev.eventKey} h={560}><MacroEventCard event={ev} onClose={() => closeMacroEvent(ev.eventKey)} /></MobileSlot>
-              ))}
 
-              {search && (
-                <MobileSlot h={MOBILE_CARD_HEIGHTS.search}>
-                  <SearchCard mode={search.mode} onModeChange={(m) => setSearch((prev) => (prev ? { ...prev, mode: m } : prev))} onClose={closeSearch} onOpenEvent={openEvent} onOpenMarket={openMarket} />
-                </MobileSlot>
+              {/* Prediction Markets — the market trio (markets · macro · search) + chat + whale, each
+                  immediately followed by the cards it spawns, so a spawned card opens right after its origin. */}
+              {dashTab === "markets" && (
+                <>
+                  <MobileSlot h={MOBILE_CARD_HEIGHTS.markets}><PortfolioMarketsCard holdings={ledger.holdings} onOpenMarket={openMarket} onOpenEvent={openEvent} /></MobileSlot>
+                  {openMarkets.map((m) => (
+                    <MobileSlot key={m.market_id} h={560}><MarketDetailCard market={m} onClose={() => closeMarket(m.market_id)} /></MobileSlot>
+                  ))}
+
+                  {macroOpen && (
+                    <MobileSlot h={MOBILE_CARD_HEIGHTS.macro}><MacroSignalsCard onClose={closeMacro} onOpenEvent={openMacroEvent} /></MobileSlot>
+                  )}
+                  {openMacroEvents.map((ev) => (
+                    <MobileSlot key={ev.eventKey} h={560}><MacroEventCard event={ev} onClose={() => closeMacroEvent(ev.eventKey)} /></MobileSlot>
+                  ))}
+
+                  {search && (
+                    <MobileSlot h={MOBILE_CARD_HEIGHTS.search}>
+                      <SearchCard mode={search.mode} onModeChange={(m) => setSearch((prev) => (prev ? { ...prev, mode: m } : prev))} onClose={closeSearch} onOpenEvent={openEvent} onOpenMarket={openMarket} />
+                    </MobileSlot>
+                  )}
+                  {openEvents.map((ev) => (
+                    <MobileSlot key={ev.event_id} h={600}><EventDetailCard event={ev} onClose={() => closeEvent(ev.event_id)} onOpenMarket={openMarket} /></MobileSlot>
+                  ))}
+
+                  <MobileSlot h={MOBILE_CARD_HEIGHTS.chat}><OddpoolChatCard portfolio={portfolioCtx} /></MobileSlot>
+                  <MobileSlot h={MOBILE_CARD_HEIGHTS.whale}><WhaleCard /></MobileSlot>
+                </>
               )}
-              {openEvents.map((ev) => (
-                <MobileSlot key={ev.event_id} h={600}><EventDetailCard event={ev} onClose={() => closeEvent(ev.event_id)} onOpenMarket={openMarket} /></MobileSlot>
-              ))}
 
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.chat}><OddpoolChatCard portfolio={portfolioCtx} /></MobileSlot>
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.whale}><WhaleCard /></MobileSlot>
-
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.prices}><LivePricesCard assets={priceAssets} onOpenChart={openChart} /></MobileSlot>
-              {openCharts.map((c) => (
-                <MobileSlot key={c.ticker} h={340}><ChartCard symbol={c.ticker} name={c.name} onClose={() => closeChart(c.ticker)} /></MobileSlot>
-              ))}
-
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.hours}><MarketHoursCard /></MobileSlot>
+              {/* Extra — the market-hours clock. */}
+              {dashTab === "extra" && (
+                <MobileSlot h={MOBILE_CARD_HEIGHTS.hours}><MarketHoursCard /></MobileSlot>
+              )}
               </div>
             )}
+
+            {/* Article reader — a blurred overlay that brings the piece to the foreground and blurs
+                everything behind it. It sits BELOW the nav (z-40 < nav's z-50) so the floating nav
+                stays sharp and on top; the panel is pushed down to clear the pill. Tap backdrop to close. */}
+            {openArticles.length > 0 && (() => {
+              const a = openArticles[openArticles.length - 1];
+              return (
+                <div
+                  className="fade-in fixed inset-0 z-40 flex items-start justify-center px-4 pb-4 pt-[92px]"
+                  style={{ backgroundColor: "rgba(6,6,9,0.58)", backdropFilter: "blur(30px) saturate(165%)", WebkitBackdropFilter: "blur(30px) saturate(165%)" }}
+                  onClick={() => closeArticle(a.id)}
+                >
+                  <div className="relative h-[calc(100dvh-108px)] max-h-[760px] w-full max-w-[440px]" onClick={(e) => e.stopPropagation()}>
+                    <ArticleCard item={a} onClose={() => closeArticle(a.id)} />
+                  </div>
+                </div>
+              );
+            })()}
           </StaticLayoutContext.Provider>
         ) : (
           <div
@@ -705,7 +731,7 @@ export function MonacoHome() {
             {/* default positions/sizes come from the fill-height packer (computeHomeLayout) */}
             <LedgerCard data={ledger} editable onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
             <ThesisMonitorCard user={MONITOR_USER} x={homeL.monitor.x} y={homeL.monitor.y} width={homeL.monitor.w} height={homeL.monitor.h} />
-            <PortfolioMarketsCard holdings={ledger.holdings} x={homeL.markets.x} y={homeL.markets.y} width={homeL.markets.w} height={homeL.markets.h} onOpenMarket={openMarket} />
+            <PortfolioMarketsCard holdings={ledger.holdings} x={homeL.markets.x} y={homeL.markets.y} width={homeL.markets.w} height={homeL.markets.h} onOpenMarket={openMarket} onOpenEvent={openEvent} />
             <WhaleCard x={homeL.whale.x} y={homeL.whale.y} width={homeL.whale.w} height={homeL.whale.h} />
             <OddpoolChatCard portfolio={portfolioCtx} x={homeL.chat.x} y={homeL.chat.y} width={homeL.chat.w} height={homeL.chat.h} />
             <MarketHoursCard x={homeL.hours.x} y={homeL.hours.y} width={homeL.hours.w} height={homeL.hours.h} />

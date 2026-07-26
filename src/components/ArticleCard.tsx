@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useMovableCard } from "@/components/ui/useMovableCard";
+import { useContext, useEffect, useState } from "react";
+import { useMovableCard, StaticLayoutContext } from "@/components/ui/useMovableCard";
 import type { NewsItem, Article } from "@/lib/guardian";
 
 function fmtDate(iso: string): string {
@@ -24,6 +24,7 @@ export function ArticleCard({
   onClose: () => void;
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard(`article:${item.id}`, { x, y, w: 480, h: 600 }, { minW: 360, minH: 320 });
+  const isStatic = useContext(StaticLayoutContext); // mobile modal: no drag/resize, so hide the resize glyph
   const [article, setArticle] = useState<Article | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [heroErr, setHeroErr] = useState(false);
@@ -47,79 +48,87 @@ export function ArticleCard({
   const image = article?.image || item.image;
   const byline = article?.byline ?? item.byline;
   const published = article?.published || item.published;
-  const section = article?.section || item.section;
   const url = article?.url || item.url;
 
   return (
     <div
       onPointerDown={raise}
-      style={style}
-      className="fade-in absolute flex flex-col overflow-hidden rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)]"
+      style={
+        isStatic
+          ? { ...style, backgroundColor: "rgba(20,20,26,0.5)", backdropFilter: "blur(26px) saturate(175%)", WebkitBackdropFilter: "blur(26px) saturate(175%)" }
+          : style
+      }
+      className={`fade-in absolute flex flex-col overflow-hidden rounded-[20px] border font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)] ${isStatic ? "border-white/[0.12]" : "border-white/[0.06] bg-[#0e0e0e]"}`}
     >
-      {/* header — drag handle */}
-      <div {...dragHandle} className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-3">
-        <p className="truncate text-[10px] uppercase tracking-wider text-[#8a8a8a]">The Guardian{section ? ` · ${section}` : ""}</p>
-        <button
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={onClose}
-          title="Close"
-          className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[#8a8a8a] transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-            <path d="M18 6 6 18M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+      {/* floating close — no header chrome, so the photo runs right to the top edge */}
+      <button
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={onClose}
+        title="Close"
+        className="absolute right-3 top-3 z-30 grid h-8 w-8 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-colors hover:bg-black/65"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <path d="M18 6 6 18M6 6l12 12" />
+        </svg>
+      </button>
 
       {/* body */}
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        {image && !heroErr && (
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto">
+        {image && !heroErr ? (
+          // Full-bleed hero, flush to the top; doubles as the drag handle on desktop.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt={article?.imageAlt || ""} onError={() => setHeroErr(true)} className="mb-3 h-44 w-full rounded-xl object-cover" />
+          <img {...dragHandle} src={image} alt={article?.imageAlt || ""} onError={() => setHeroErr(true)} className="h-72 w-full cursor-move select-none object-cover" />
+        ) : (
+          // No image → a slim strip keeps the desktop card draggable.
+          <div {...dragHandle} className="h-4 shrink-0 cursor-move" />
         )}
 
-        <h2 className="text-[19px] font-semibold leading-snug text-white">{title}</h2>
-        <p className="mt-1.5 text-[11.5px] text-[#8a8a8a]">
-          {byline ? `${byline} · ` : ""}
-          {fmtDate(published)}
-        </p>
+        <div className="px-5 pb-4 pt-4">
+          <h2 className="text-[19px] font-semibold leading-snug text-white">{title}</h2>
+          <p className="mt-1.5 text-[11.5px] text-[#8a8a8a]">
+            {byline ? `${byline} · ` : ""}
+            {fmtDate(published)}
+          </p>
 
-        <div className="mt-3.5">
-          {err && <p className="text-[13px] text-rose-400">{err}</p>}
-          {!article && !err && <p className="animate-pulse text-[13px] text-[#8a8a8a]">Loading article…</p>}
-          {article?.paragraphs.map((p, i) => (
-            <p key={i} className="mb-3 text-[13.5px] leading-relaxed text-white/85">
-              {p}
-            </p>
-          ))}
-          {article && article.paragraphs.length === 0 && !err && (
-            <p className="text-[13px] text-[#8a8a8a]">No preview text available for this item — open the original below.</p>
-          )}
+          <div className="mt-3.5">
+            {err && <p className="text-[13px] text-rose-400">{err}</p>}
+            {!article && !err && <p className="animate-pulse text-[13px] text-[#8a8a8a]">Loading article…</p>}
+            {article?.paragraphs.map((p, i) => (
+              <p key={i} className="mb-3 text-[13.5px] leading-relaxed text-white/85">
+                {p}
+              </p>
+            ))}
+            {article && article.paragraphs.length === 0 && !err && (
+              <p className="text-[13px] text-[#8a8a8a]">No preview text available for this item — open the original below.</p>
+            )}
+          </div>
+
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-400 transition-colors hover:text-emerald-300"
+          >
+            Read on theguardian.com
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M7 17 17 7M7 7h10v10" />
+            </svg>
+          </a>
         </div>
+      </div>
 
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-1 inline-flex items-center gap-1 text-[12px] text-emerald-400 transition-colors hover:text-emerald-300"
+      {/* resize handle — desktop movable card only; hidden in the mobile modal display */}
+      {!isStatic && (
+        <div
+          {...resizeHandle}
+          className="absolute bottom-0 right-0 z-20 flex h-7 w-7 cursor-nwse-resize touch-none items-end justify-end p-1.5 text-white/40 transition-colors hover:text-white/80"
+          title="Drag to resize"
         >
-          Read on theguardian.com
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M7 17 17 7M7 7h10v10" />
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
-        </a>
-      </div>
-
-      {/* resize handle */}
-      <div
-        {...resizeHandle}
-        className="absolute bottom-0 right-0 z-20 flex h-7 w-7 cursor-nwse-resize touch-none items-end justify-end p-1.5 text-white/40 transition-colors hover:text-white/80"
-        title="Drag to resize"
-      >
-        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M11 4L4 11M11 8L8 11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-        </svg>
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -8,17 +8,6 @@ import type { NewsItem } from "@/lib/guardian";
 
 const POLL_MS = 120_000; // server caches 5 min; this just keeps the card fresh
 
-const isLiveBlog = (t: string) => /[–—-]\s*(live|as it happened)\s*$/i.test((t || "").trim());
-
-// Live-blog bylines tag the writer currently on the blog with "(now)" — show that author
-// (fall back to the lead author when there's no "(now)" tag).
-function currentAuthor(byline: string): string {
-  const now = byline.match(/([^;,]+?)\s*\(now\)/i);
-  if (now) return now[1].trim();
-  const cleaned = byline.replace(/\s*\((?:now|earlier|then)\)/gi, " ").replace(/\s+/g, " ").trim();
-  return cleaned.split(/\s*(?:;|,|\band\b)\s*/i).map((s) => s.trim()).filter(Boolean)[0] || cleaned;
-}
-
 function relTime(iso: string): string {
   const t = Date.parse(iso);
   if (Number.isNaN(t)) return "";
@@ -53,6 +42,7 @@ export function NewsAlertCard({
   query,
   onOpenArticle,
   onFindSignals,
+  embedded = false,
   x = 1080,
   y = 826,
   width = 430,
@@ -61,6 +51,7 @@ export function NewsAlertCard({
   query?: string;
   onOpenArticle: (item: NewsItem) => void;
   onFindSignals: (item: NewsItem) => void;
+  embedded?: boolean; // phone: render the feed straight on the page background (no card shell)
   x?: number;
   y?: number;
   width?: number;
@@ -104,6 +95,60 @@ export function NewsAlertCard({
     };
   }, [query]);
 
+  // The headline feed — shared by the card and the embedded (phone) layouts.
+  const feed = (
+    <>
+      {loading && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Loading headlines…</p>}
+      {err && !items.length && <p className="mt-10 text-center text-[13px] text-rose-400">{err}</p>}
+      {!loading && !err && !items.length && <p className="mt-10 text-center text-[12px] text-[#666]">No headlines right now.</p>}
+
+      {items.map((i) => {
+        const isNew = !seen.has(i.id);
+        return (
+          <button
+            key={i.id}
+            onClick={() => onOpenArticle(i)}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ vx: e.clientX, vy: e.clientY, item: i }); }}
+            className="group flex w-full gap-2 border-t border-white/[0.06] py-3 text-left first:border-t-0"
+          >
+            <Thumb src={i.image} alt={i.imageAlt} />
+            <div className="min-w-0 flex-1">
+              <p className="line-clamp-3 text-[14px] leading-snug text-white/90 group-hover:text-white">
+                {i.takeaway || i.title}{" "}
+                {isNew && (
+                  <span className="mr-0.5 rounded-[5px] bg-emerald-500/15 px-1.5 py-px align-middle text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
+                    New
+                  </span>
+                )}
+                <span className="whitespace-nowrap text-[13.5px] font-normal text-[#8a8a8a]">{relTime(i.published)}</span>
+              </p>
+            </div>
+          </button>
+        );
+      })}
+    </>
+  );
+
+  const menuEl = menu && (
+    <ContextMenu
+      x={menu.vx}
+      y={menu.vy}
+      items={[{ label: "Find Signals", onClick: () => { onFindSignals(menu.item); setMenu(null); } }]}
+      onClose={() => setMenu(null)}
+    />
+  );
+
+  // Phone: no card chrome — the feed flows straight on the page background (document scroll).
+  if (embedded) {
+    return (
+      <div className="fade-in font-sans tracking-[-0.01em]">
+        <h2 className="px-1 pb-0.5 text-[16px] font-semibold text-white">Portfolio Headlines</h2>
+        <div className="px-1">{feed}</div>
+        {menuEl}
+      </div>
+    );
+  }
+
   return (
     <div
       onPointerDown={raise}
@@ -118,48 +163,9 @@ export function NewsAlertCard({
       </div>
 
       {/* body — feed */}
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-2">
-        {loading && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Loading headlines…</p>}
-        {err && !items.length && <p className="mt-10 text-center text-[13px] text-rose-400">{err}</p>}
-        {!loading && !err && !items.length && <p className="mt-10 text-center text-[12px] text-[#666]">No headlines right now.</p>}
+      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-2">{feed}</div>
 
-        {items.map((i) => {
-          const isNew = !seen.has(i.id);
-          const live = isLiveBlog(i.title);
-          return (
-            <button
-              key={i.id}
-              onClick={() => onOpenArticle(i)}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ vx: e.clientX, vy: e.clientY, item: i }); }}
-              className="group flex w-full gap-3 border-t border-white/[0.06] py-3 text-left first:border-t-0"
-            >
-              <Thumb src={i.image} alt={i.imageAlt} />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 text-[11px] leading-snug text-white/90 group-hover:text-white">{i.takeaway || i.title}</p>
-                <div className="mt-1 flex items-center gap-2 overflow-hidden text-[10.5px] text-[#8a8a8a]">
-                  {isNew && (
-                    <span className="shrink-0 rounded-[5px] bg-emerald-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-emerald-400">
-                      New
-                    </span>
-                  )}
-                  {i.section && <span className="shrink-0">{i.section}</span>}
-                  <span className="shrink-0">· {relTime(i.published)}</span>
-                  {i.byline && <span className="truncate">· {live ? currentAuthor(i.byline) : i.byline}</span>}
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {menu && (
-        <ContextMenu
-          x={menu.vx}
-          y={menu.vy}
-          items={[{ label: "Find Signals", onClick: () => { onFindSignals(menu.item); setMenu(null); } }]}
-          onClose={() => setMenu(null)}
-        />
-      )}
+      {menuEl}
 
       {/* resize handle */}
       <div
