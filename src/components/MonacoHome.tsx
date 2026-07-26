@@ -5,6 +5,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { LedgerCard } from "@/components/LedgerCard";
+import { PortfolioLedger } from "@/components/PortfolioLedger";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
 import { BriefReveal } from "@/components/BriefReveal";
 import { PortfolioMarketsCard } from "@/components/PortfolioMarketsCard";
@@ -127,9 +128,32 @@ export function MonacoHome() {
   // Auth (Google sign-in) + the account dropdown.
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
-  const [mobilePage, setMobilePage] = useState<"brief" | "portfolio">("brief"); // phone-only: which stack to show
-  const [navCondensed, setNavCondensed] = useState(false); // phone Brief: nav shrinks on scroll-down
+  const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio">("brief"); // phone-only: which stack to show
+  const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
+  // Nav-condense on scroll — the same protocol BriefReveal uses (shrink after scrolling down past a
+  // small threshold, restore on scroll-up or at the very top; accumulate per-direction so a tiny nudge
+  // doesn't flip it). Brief drives this from inside BriefReveal (its own scroll container); the
+  // Dashboard/Portfolio/Account pages scroll the DOCUMENT, so mirror it on the window here.
+  const navScrollAccum = useRef(0);
+  useEffect(() => {
+    if (!isMobile || mobilePage === "brief") return; // Brief is handled inside BriefReveal
+    navScrollAccum.current = 0;
+    let prev = window.scrollY;
+    const onScroll = () => {
+      const latest = window.scrollY;
+      const d = latest - prev;
+      prev = latest;
+      if (d === 0) return;
+      if (latest <= 6) { navScrollAccum.current = 0; setNavCondensed(false); return; }
+      if (Math.sign(d) !== Math.sign(navScrollAccum.current)) navScrollAccum.current = 0; // direction reversed
+      navScrollAccum.current += d;
+      if (navScrollAccum.current > 40) setNavCondensed(true);
+      else if (navScrollAccum.current < -40) setNavCondensed(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [isMobile, mobilePage]);
   const userId = session?.user?.id ?? null;
   const authed = !!userId; // authenticated client → editable, per-account, persisted ledger
   const scope = authed ? `u.${userId}` : null; // localStorage namespace for this account
@@ -418,8 +442,8 @@ export function MonacoHome() {
     fontSize: "clamp(12px, calc(7.43px + 0.446vw), 16px)",
     letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)",
   };
-  // Phone Brief page: the nav pill shrinks while scrolling down (navCondensed), restores on scroll-up.
-  const navSmall = isMobile && mobilePage === "brief" && navCondensed;
+  // Phone (every page): the nav pill shrinks while scrolling down (navCondensed), restores on scroll-up.
+  const navSmall = isMobile && navCondensed;
 
   // Compact portfolio context handed to the chat assistant.
   const portfolioCtx = ledger
@@ -460,8 +484,8 @@ export function MonacoHome() {
             }}
           >
             {/* left links — tighter gaps/padding on phones so the pill scales proportionally */}
-            <nav className="flex flex-1 shrink-0 items-center justify-start gap-4 pl-4 sm:gap-8 sm:pl-[25px]">
-              {/* mobile (<768): Brief / Portfolio page tabs */}
+            <nav className="flex flex-1 shrink-0 items-center justify-evenly md:justify-start md:gap-8 md:pl-[25px]">
+              {/* mobile (<768): Brief / Dashboard page tabs (Portfolio lives on the right of the logo) */}
               <button
                 onClick={() => { setMobilePage("brief"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 style={navText}
@@ -470,11 +494,11 @@ export function MonacoHome() {
                 Brief
               </button>
               <button
-                onClick={() => { setMobilePage("portfolio"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                onClick={() => { setMobilePage("dashboard"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 style={navText}
-                className={`capitalize transition-opacity md:hidden ${mobilePage === "portfolio" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
+                className={`capitalize transition-opacity md:hidden ${mobilePage === "dashboard" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
               >
-                Portfolio
+                Dashboard
               </button>
               {/* desktop (≥768): Portfolio (scroll home) / Plays */}
               <button
@@ -490,9 +514,11 @@ export function MonacoHome() {
             </nav>
 
             {/* center logo — serif all-caps wordmark (Monaco style); scales down on phones */}
-            {/* Centering lives on the wrapper; the scale lives on the inner button so they don't
-                fight. Scaling (GPU, sub-pixel) is far smoother than animating font-size. */}
-            <div className="absolute left-1/2 z-10 -translate-x-1/2">
+            {/* Phone: the logo is an in-flow flex item between the two flex-1 groups — equal flex space
+                keeps it centered, but it now reserves real width so the tabs can't slide under it (the
+                bug the absolute-centered desktop version had once a 4th tab was added). Desktop keeps
+                absolute centering. Scale (GPU, sub-pixel) is smoother than animating font-size. */}
+            <div className={isMobile ? "z-10 shrink-0" : "absolute left-1/2 z-10 -translate-x-1/2"}>
               <button
                 className="text-white"
                 style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "clamp(17px, 1.8vw + 10px, 26px)", fontWeight: 500, letterSpacing: "0.05em", lineHeight: 1, transformOrigin: "center", transform: navSmall ? "scale(0.82)" : "scale(1)", transition: "transform 380ms cubic-bezier(0.22,1,0.36,1)" }}
@@ -501,15 +527,23 @@ export function MonacoHome() {
               </button>
             </div>
 
-            {/* right actions — Dispatch (text; hidden on phones), then Log in / account (oval pill, extreme right) */}
-            <div className="flex flex-1 shrink-0 items-center justify-end gap-4 pr-4 sm:gap-8 sm:pr-[25px]">
+            {/* right actions — mobile Portfolio tab (right of the logo), Dispatch (hidden on phones), then Log in / account */}
+            <div className="flex flex-1 shrink-0 items-center justify-evenly md:justify-end md:gap-8 md:pr-[25px]">
+              <button
+                onClick={() => { setMobilePage("portfolio"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                style={navText}
+                className={`capitalize transition-opacity md:hidden ${mobilePage === "portfolio" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
+              >
+                Portfolio
+              </button>
               <button onClick={() => showToast("Dispatch — coming soon")} style={navText} className="hidden opacity-80 transition-opacity hover:opacity-100 sm:block">
                 Dispatch
               </button>
               {session?.user ? (
                 isMobile ? (
-                  // Phone: the profile avatar doesn't fit the compact nav — plain-text log out instead.
-                  <button onClick={() => signOut()} style={navText} className="opacity-85 transition-opacity hover:opacity-100">
+                  // Phone: the profile avatar doesn't fit the compact nav — plain-text log out instead,
+                  // at the same resting opacity as the other tabs.
+                  <button onClick={() => signOut()} style={navText} className="opacity-50 transition-opacity hover:opacity-100">
                     Log out
                   </button>
                 ) : (
@@ -548,17 +582,27 @@ export function MonacoHome() {
               ) : (
                 <button
                   onClick={() => signIn("google")}
-                  className={`inline-flex items-center justify-center whitespace-nowrap transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${navSmall ? "text-white/85 hover:text-white" : "rounded-[42px] bg-black text-white hover:bg-white hover:text-black"}`}
-                  style={{
-                    height: navSmall ? 24 : 40,
-                    padding: navSmall ? "0px" : "9px 16px",
-                    fontWeight: 400,
-                    lineHeight: 1.4,
-                    fontSize: "clamp(12px, calc(7.43px + 0.446vw), 16px)",
-                    letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)",
-                  }}
+                  className={
+                    isMobile
+                      ? // Phone: no pill — plain text at the same resting opacity as the other tabs
+                        // (an inactive tab), so it reads as a peer and THESIS stays centered.
+                        "whitespace-nowrap opacity-50 transition-opacity hover:opacity-100"
+                      : "inline-flex items-center justify-center whitespace-nowrap rounded-[42px] bg-black text-white transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-black"
+                  }
+                  style={
+                    isMobile
+                      ? navText
+                      : {
+                          height: 40,
+                          padding: "9px 16px",
+                          fontWeight: 400,
+                          lineHeight: 1.4,
+                          fontSize: "clamp(12px, calc(7.43px + 0.446vw), 16px)",
+                          letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)",
+                        }
+                  }
                 >
-                  Log in
+                  {isMobile ? "Account" : "Log in"}
                 </button>
               )}
             </div>
@@ -594,10 +638,23 @@ export function MonacoHome() {
               // time. Full-bleed (no top padding) so the text slides UNDER the liquid-glass nav. Swap
               // back to <ThesisMonitorCard/> to revert.
               <BriefReveal user={MONITOR_USER} onCondense={setNavCondensed} />
+            ) : mobilePage === "portfolio" ? (
+              // "Portfolio" tab — the ledger embedded straight on the black background (no card):
+              // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
+              <div className="px-4 pb-8 pt-24">
+                <PortfolioLedger data={ledger} onChange={setLedger} />
+              </div>
             ) : (
-              // "Portfolio" tab — everything else (ledger onward), without the briefing.
+              // "Dashboard" tab — every other card (without the ledger, without the briefing).
               <div className="flex flex-col gap-3.5 px-3.5 pb-8 pt-24">
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.ledger}><LedgerCard data={ledger} editable onChange={setLedger} /></MobileSlot>
+              {/* Portfolio Headlines leads the Dashboard stack — the day's news read comes first. */}
+              <MobileSlot h={MOBILE_CARD_HEIGHTS.news}><NewsAlertCard query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} /></MobileSlot>
+              {openArticles.map((a) => (
+                <MobileSlot key={a.id} h={600}><ArticleCard item={a} onClose={() => closeArticle(a.id)} /></MobileSlot>
+              ))}
+              {openSignals.map((a) => (
+                <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
+              ))}
 
               {/* Prediction-market trio (markets · macro · search) — each immediately followed by
                   the cards it spawns, so a spawned card opens right after its origin card. */}
@@ -628,14 +685,6 @@ export function MonacoHome() {
               <MobileSlot h={MOBILE_CARD_HEIGHTS.prices}><LivePricesCard assets={priceAssets} onOpenChart={openChart} /></MobileSlot>
               {openCharts.map((c) => (
                 <MobileSlot key={c.ticker} h={340}><ChartCard symbol={c.ticker} name={c.name} onClose={() => closeChart(c.ticker)} /></MobileSlot>
-              ))}
-
-              <MobileSlot h={MOBILE_CARD_HEIGHTS.news}><NewsAlertCard query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} /></MobileSlot>
-              {openArticles.map((a) => (
-                <MobileSlot key={a.id} h={600}><ArticleCard item={a} onClose={() => closeArticle(a.id)} /></MobileSlot>
-              ))}
-              {openSignals.map((a) => (
-                <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
               ))}
 
               <MobileSlot h={MOBILE_CARD_HEIGHTS.hours}><MarketHoursCard /></MobileSlot>

@@ -6,6 +6,9 @@ import type { MarketsPayload, MarketLite } from "@/lib/oddpool";
 import type { ParsedHolding } from "@/lib/parsePortfolio";
 import { useMovableCard } from "@/components/ui/useMovableCard";
 
+// Markets thinner than this (trade volume, USD) are hidden — too illiquid to be worth surfacing.
+const MIN_VOLUME = 2000;
+
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)}%`);
 function fmtUSD(v: number | null | undefined): string {
   if (v == null) return "—";
@@ -77,6 +80,19 @@ export function PortfolioMarketsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
+  // Drop markets under MIN_VOLUME, recompute each asset's count from the survivors, and hide any
+  // asset left with no markets at all.
+  const assets = useMemo(
+    () =>
+      (data?.assets ?? [])
+        .map((a) => {
+          const markets = a.markets.filter((m) => (m.volume ?? 0) >= MIN_VOLUME);
+          return { ...a, markets, count: markets.length };
+        })
+        .filter((a) => a.markets.length > 0),
+    [data],
+  );
+
   return (
     <div
       onPointerDown={raise}
@@ -92,11 +108,11 @@ export function PortfolioMarketsCard({
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-3">
         {loading && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Scanning live markets…</p>}
         {err && !data && <p className="mt-10 text-center text-[13px] text-rose-400">{err}</p>}
-        {data && !loading && !data.assets.length && (
+        {data && !loading && !assets.length && (
           <p className="mt-10 text-center text-[12px] text-[#666]">{holdings.length ? "No prediction markets across these holdings yet." : "Add holdings to see related markets."}</p>
         )}
 
-        {data?.assets.map((a) => {
+        {assets.map((a) => {
           const isExp = expanded.has(a.ticker);
           const shown = isExp ? a.markets : a.markets.slice(0, 8);
           return (

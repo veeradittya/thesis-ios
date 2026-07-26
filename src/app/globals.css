@@ -14,6 +14,11 @@
   --color-text-muted: var(--muted-foreground);
   --color-accent: var(--foreground);
   --color-accent-glow: var(--ring);
+  /* shadcn-standard aliases so registry components (e.g. Aceternity GooeyInput) resolve their
+     bg-foreground / text-background / ring-ring / ring-offset-background utilities. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-ring: var(--ring);
   --color-crimson: var(--primary);
   --color-crimson-hover: var(--primary-hover);
   --color-positive: var(--positive);

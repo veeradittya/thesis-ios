@@ -207,10 +207,10 @@ export function emptyLedger(name = "My Portfolio"): ParsedPortfolio {
   return { fileName: "", portfolioName: name, sheetName: "", rowCount: 0, totalValue: null, holdings: [], mappedColumns: {} };
 }
 
-// A realistic ~$120k retail demo portfolio: the ten stocks US retail investors most commonly hold
-// in their brokerage accounts, sized like a normal person's account (not an institutional 13F).
-// Reference prices are approximate — live quotes come from the prices card; the ledger just needs
-// plausible position values. Seeded for guests + first-run so the dashboard has real content.
+// A realistic retail demo portfolio: six stocks US retail investors most commonly hold in their
+// brokerage accounts, sized like a normal person's account (not an institutional 13F). Reference
+// prices are approximate — live quotes come from the prices card; the ledger just needs plausible
+// position values. Seeded for guests + first-run so the dashboard has real content.
 export function demoPortfolio(name = "Demo Portfolio"): ParsedPortfolio {
   const raw: Array<[string, string, number, number]> = [
     ["AAPL", "Apple Inc.", 82, 220],
@@ -219,10 +219,6 @@ export function demoPortfolio(name = "Demo Portfolio"): ParsedPortfolio {
     ["AMZN", "Amazon.com, Inc.", 60, 220],
     ["TSLA", "Tesla, Inc.", 44, 330],
     ["GOOGL", "Alphabet Inc.", 57, 190],
-    ["META", "Meta Platforms, Inc.", 15, 720],
-    ["AMD", "Advanced Micro Devices, Inc.", 49, 170],
-    ["DIS", "The Walt Disney Company", 63, 115],
-    ["F", "Ford Motor Company", 600, 12],
   ];
   const holdings: ParsedHolding[] = raw.map(([ticker, nm, shares, price]) => ({
     ticker,
