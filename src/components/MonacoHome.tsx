@@ -472,65 +472,9 @@ export function MonacoHome() {
 
   return (
     <div className={`bg-black font-sans tracking-[-0.02em] text-[#fafafa] antialiased ${isMobile ? "min-h-dvh overflow-x-clip" : "flex h-screen flex-col"}`}>
-      {/* ── Mobile (app shell): logo-only top bar + bottom tab nav ───── */}
-      {isMobile && (
-        <>
-          {/* Top: THESIS wordmark only. Floats over the content and slides away on scroll-down
-              (navCondensed), returns on scroll-up / at the top. A slim top scrim keeps it legible. */}
-          <div
-            className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center pb-5 pt-[calc(env(safe-area-inset-top)+14px)] transition-[transform,opacity] duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
-            style={{
-              transform: navCondensed ? "translateY(-160%)" : "translateY(0)",
-              opacity: navCondensed ? 0 : 1,
-              background: "linear-gradient(to bottom, rgba(0,0,0,0.9) 30%, rgba(0,0,0,0))",
-            }}
-          >
-            <button
-              onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-              className="pointer-events-auto text-white"
-              style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "clamp(21px, 6.2vw, 27px)", fontWeight: 500, letterSpacing: "0.05em", lineHeight: 1 }}
-            >
-              THESIS
-            </button>
-          </div>
-
-          {/* Bottom: the floating liquid-glass nav pill, moved down to a native tab bar. */}
-          <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pb-[calc(env(safe-area-inset-bottom)+12px)] pt-2">
-            <div
-              className="pointer-events-auto flex items-center gap-0.5 rounded-[18px] p-[5px]"
-              style={{ backgroundColor: "#3a3a3a80", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}
-            >
-              {([
-                { id: "brief", label: "Brief" },
-                { id: "dashboard", label: "Dashboard" },
-                { id: "portfolio", label: "Portfolio" },
-              ] as { id: "brief" | "dashboard" | "portfolio"; label: string }[]).map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => { setMobilePage(t.id); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                  style={navText}
-                  className={`whitespace-nowrap rounded-[13px] px-3.5 py-2 capitalize transition-all ${mobilePage === t.id ? "bg-white/[0.12] opacity-100" : "opacity-55 hover:opacity-90"}`}
-                >
-                  {t.label}
-                </button>
-              ))}
-              {session?.user ? (
-                <button onClick={() => signOut()} style={navText} className="whitespace-nowrap rounded-[13px] px-3.5 py-2 opacity-55 transition-opacity hover:opacity-90">
-                  Log out
-                </button>
-              ) : (
-                <button onClick={() => signIn("google")} style={navText} className="whitespace-nowrap rounded-[13px] px-3.5 py-2 opacity-55 transition-opacity hover:opacity-90">
-                  Account
-                </button>
-              )}
-            </div>
-          </nav>
-        </>
-      )}
-
-      {/* ── Desktop: exact Monaco floating liquid-glass pill ───── */}
-      {!isMobile && (
-      <header className="pointer-events-none fixed inset-x-0 top-6 z-50 w-full px-4">
+      {/* ── Floating liquid-glass nav pill — the pre-fork betathesis nav, unified across breakpoints.
+          The entire pill sits at the BOTTOM on phones (safe-area aware); top-6 on desktop (≥768px). ───── */}
+      <header className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-50 w-full px-4 md:bottom-auto md:top-6">
         <div className="mx-auto flex w-full max-w-[1920px] flex-col items-center">
           <div
             className="pointer-events-auto relative flex items-center rounded-[16px] transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)]"
@@ -668,7 +612,6 @@ export function MonacoHome() {
           </div>
         </div>
       </header>
-      )}
 
       {/* ephemeral "coming soon" pill for not-yet-built nav items */}
       {toast && (
@@ -701,12 +644,12 @@ export function MonacoHome() {
             ) : mobilePage === "portfolio" ? (
               // "Portfolio" tab — the ledger embedded straight on the black background (no card):
               // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
-              <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+68px)]">
+              <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
                 <PortfolioLedger data={ledger} onChange={setLedger} />
               </div>
             ) : (
               // "Dashboard" tab — split into three sliding sub-tabs: News · Prediction Markets · Extra.
-              <div className="flex flex-col gap-3.5 px-3.5 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+68px)]">
+              <div className="flex flex-col gap-3.5 px-3.5 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
               <DashboardTabs active={dashTab} onChange={setDashTab} />
 
               {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
