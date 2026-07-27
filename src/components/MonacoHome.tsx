@@ -131,7 +131,7 @@ export function MonacoHome() {
   // Auth (Google sign-in) + the account dropdown.
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
-  const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio">("brief"); // phone-only: which stack to show
+  const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
@@ -162,8 +162,12 @@ export function MonacoHome() {
   const authed = !!userId; // authenticated client → editable, per-account, persisted ledger
   const scope = authed ? `u.${userId}` : null; // localStorage namespace for this account
   const firstName = (session?.user?.name || "").trim().split(/\s+/)[0] || null; // names the seeded ledger for a signed-in user
-  // Shared scope tying the ledger, the scheduled agent, and the Daily Briefing together (demo = one portfolio).
-  const MONITOR_USER = "pilot";
+  // The Turso scope for the scheduled agent + Daily Briefing. Signed-in users read/write their OWN
+  // portfolio (keyed by their account id); signed-out visitors see the shared public demo ("pilot").
+  // The /api routes re-derive this from the session server-side — this value only drives which brief
+  // the client fetches and how it caches it, never who the server reads/writes.
+  const DEMO_USER = "pilot";
+  const monitorUser = authed && userId ? userId : DEMO_USER;
 
   // Prefetch Asset Related Markets as soon as the ledger is ready — regardless of which page/tab is
   // showing — so opening the Markets tab paints from the shared cache instead of the "Scanning live
@@ -430,7 +434,10 @@ export function MonacoHome() {
   // scope the scheduled agent reads and the Daily Briefing renders. Debounced so live ledger edits
   // coalesce into one write; the next agent pass then analyzes exactly what's in the ledger.
   useEffect(() => {
-    if (!ledger || !ledgerScope) return;
+    // Only signed-in users mirror their ledger to Turso (the agent's per-user source of truth); the
+    // server keys it to their account from the session. Guests stay browser-local until they sign in.
+    // Guard on ledgerScope === scope so we never sync before this account's ledger has loaded.
+    if (!ledger || !authed || ledgerScope !== scope) return;
     const holdings = ledger.holdings
       .filter((h) => h.ticker)
       .map((h) => ({ ticker: h.ticker, name: h.name ?? null, weight: h.weight ?? null, thesis: h.thesis ?? null }));
@@ -438,11 +445,11 @@ export function MonacoHome() {
       fetch("/api/portfolio/sync", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userId: MONITOR_USER, holdings }),
+        body: JSON.stringify({ holdings }),
       }).catch(() => {});
     }, 1500);
     return () => clearTimeout(t);
-  }, [ledger, ledgerScope]);
+  }, [ledger, ledgerScope, authed, scope]);
 
   // Monaco's exact .text-nav: Inter, grey-light #f6f6f6, fluid size + tracking.
   const navText = {
@@ -553,10 +560,14 @@ export function MonacoHome() {
               </button>
               {session?.user ? (
                 isMobile ? (
-                  // Phone: the profile avatar doesn't fit the compact nav — plain-text log out instead,
-                  // at the same resting opacity as the other tabs.
-                  <button onClick={() => signOut()} style={navText} className="opacity-50 transition-opacity hover:opacity-100">
-                    Log out
+                  // Phone: keep the label "Account" (never relabel to "Log out") — tapping it opens the
+                  // Account page, which is where the logout lives. Active/dimmed like the other page tabs.
+                  <button
+                    onClick={() => { setMobilePage("account"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    style={navText}
+                    className={`capitalize transition-opacity ${mobilePage === "account" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
+                  >
+                    Account
                   </button>
                 ) : (
                 <div className="relative">
@@ -649,7 +660,18 @@ export function MonacoHome() {
               // "Brief" tab — EXPERIMENT: the daily-brief text as a sticky-scroll reveal, one chunk at a
               // time. Full-bleed (no top padding) so the text slides UNDER the liquid-glass nav. Swap
               // back to <ThesisMonitorCard/> to revert.
-              <BriefReveal user={MONITOR_USER} onCondense={setNavCondensed} />
+              <BriefReveal user={monitorUser} onCondense={setNavCondensed} />
+            ) : mobilePage === "account" ? (
+              // "Account" tab (signed in) — the only thing here is the logout option.
+              <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-5 px-6">
+                {session?.user?.email && <p className="text-[13px] text-[#8a8a8a]">Signed in as {session.user.email}</p>}
+                <button
+                  onClick={() => signOut()}
+                  className="rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
+                >
+                  Log out
+                </button>
+              </div>
             ) : mobilePage === "portfolio" ? (
               // "Portfolio" tab — the ledger embedded straight on the black background (no card):
               // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
@@ -744,7 +766,7 @@ export function MonacoHome() {
           >
             {/* default positions/sizes come from the fill-height packer (computeHomeLayout) */}
             <LedgerCard data={ledger} editable onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
-            <ThesisMonitorCard user={MONITOR_USER} x={homeL.monitor.x} y={homeL.monitor.y} width={homeL.monitor.w} height={homeL.monitor.h} />
+            <ThesisMonitorCard user={monitorUser} x={homeL.monitor.x} y={homeL.monitor.y} width={homeL.monitor.w} height={homeL.monitor.h} />
             <PortfolioMarketsCard holdings={ledger.holdings} x={homeL.markets.x} y={homeL.markets.y} width={homeL.markets.w} height={homeL.markets.h} onOpenMarket={openMarket} onOpenEvent={openEvent} />
             <WhaleCard x={homeL.whale.x} y={homeL.whale.y} width={homeL.whale.w} height={homeL.whale.h} />
             <OddpoolChatCard portfolio={portfolioCtx} x={homeL.chat.x} y={homeL.chat.y} width={homeL.chat.w} height={homeL.chat.h} />
