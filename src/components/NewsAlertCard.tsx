@@ -1,12 +1,32 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useMovableCard } from "@/components/ui/useMovableCard";
 import { ContextMenu } from "@/components/ContextMenu";
 import type { NewsItem } from "@/lib/guardian";
 
 const POLL_MS = 120_000; // server caches 5 min; this just keeps the card fresh
+
+// Last-good feed persisted to localStorage so the next open paints instantly (stale-while-revalidate):
+// render the cached headlines with no spinner, then silently refresh in the background. Keyed by the
+// query so a portfolio change never shows a mismatched feed.
+const CACHE_KEY = "thesis.news.cache.v1";
+function readNewsCache(query?: string): NewsItem[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null");
+    if (c && c.query === (query || "") && Array.isArray(c.items) && c.items.length) return c.items as NewsItem[];
+  } catch {}
+  return null;
+}
+function writeNewsCache(query: string | undefined, items: NewsItem[]) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ query: query || "", items, at: Date.now() }));
+  } catch {}
+}
 
 function relTime(iso: string): string {
   const t = Date.parse(iso);
@@ -59,22 +79,32 @@ export function NewsAlertCard({
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("news", { x, y, w: width, h: height }, { minW: 320, minH: 280 });
   const [menu, setMenu] = useState<{ vx: number; vy: number; item: NewsItem } | null>(null);
-  const [items, setItems] = useState<NewsItem[]>([]);
-  const [seen, setSeen] = useState<Set<string>>(new Set());
+  // Seed from the localStorage cache → instant paint, spinner only on a true first-ever visit.
+  const [items, setItems] = useState<NewsItem[]>(() => readNewsCache(query) ?? []);
+  const [seen, setSeen] = useState<Set<string>>(() => new Set((readNewsCache(query) ?? []).map((i) => i.id)));
   const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const firstRef = useRef(true);
+  const [loading, setLoading] = useState(() => readNewsCache(query) == null);
+  const firstRef = useRef(readNewsCache(query) == null); // cache hit → seen already baselined from the cache
 
   useEffect(() => {
     let cancelled = false;
-    firstRef.current = true; // re-baseline "seen" whenever the query (portfolio) changes
+    // Paint the cached feed for this query straight away (no spinner); anything the refetch brings in
+    // that wasn't cached will flag as "New". No cache → baseline "seen" on the first fetch.
+    const cached = readNewsCache(query);
+    if (cached) {
+      setItems(cached);
+      setSeen(new Set(cached.map((i) => i.id)));
+      firstRef.current = false;
+    } else {
+      firstRef.current = true;
+    }
     const load = (first: boolean) =>
       fetch(`/api/guardian?q=${encodeURIComponent(query || "")}&takeaways=1`)
         .then((r) => r.json())
         .then((j) => {
           if (cancelled) return;
           if (j.error) {
-            if (first) setErr(j.error);
+            if (first && !cached) setErr(j.error);
             return;
           }
           const next: NewsItem[] = j.items || [];
@@ -84,8 +114,9 @@ export function NewsAlertCard({
             setSeen(new Set(next.map((i) => i.id))); // nothing is "new" on first load
             firstRef.current = false;
           }
+          writeNewsCache(query, next); // persist last-good for the next open
         })
-        .catch(() => first && !cancelled && setErr("Couldn't load news."))
+        .catch(() => first && !cancelled && !cached && setErr("Couldn't load news."))
         .finally(() => first && !cancelled && setLoading(false));
     load(true);
     const id = setInterval(() => load(false), POLL_MS);
@@ -102,30 +133,38 @@ export function NewsAlertCard({
       {err && !items.length && <p className="mt-10 text-center text-[13px] text-rose-400">{err}</p>}
       {!loading && !err && !items.length && <p className="mt-10 text-center text-[12px] text-[#666]">No headlines right now.</p>}
 
-      {items.map((i) => {
-        const isNew = !seen.has(i.id);
-        return (
-          <button
-            key={i.id}
-            onClick={() => onOpenArticle(i)}
-            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ vx: e.clientX, vy: e.clientY, item: i }); }}
-            className="group flex w-full gap-2 border-t border-white/[0.06] py-3 text-left first:border-t-0"
-          >
-            <Thumb src={i.image} alt={i.imageAlt} />
-            <div className="min-w-0 flex-1">
-              <p className="line-clamp-3 text-[14px] leading-snug text-white/90 group-hover:text-white">
-                {i.takeaway || i.title}{" "}
-                {isNew && (
-                  <span className="mr-0.5 rounded-[5px] bg-emerald-500/15 px-1.5 py-px align-middle text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
-                    New
-                  </span>
-                )}
-                <span className="whitespace-nowrap text-[13.5px] font-normal text-[#8a8a8a]">{relTime(i.published)}</span>
-              </p>
-            </div>
-          </button>
-        );
-      })}
+      {/* initial={false}: the cached feed paints without animating; only articles that arrive on a
+          later refresh animate in — fading into the top slot while the rest slide down (layout). */}
+      <AnimatePresence initial={false}>
+        {items.map((i) => {
+          const isNew = !seen.has(i.id);
+          return (
+            <motion.button
+              key={i.id}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ height: { duration: 0.42, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.45, ease: "easeOut" } }}
+              onClick={() => onOpenArticle(i)}
+              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ vx: e.clientX, vy: e.clientY, item: i }); }}
+              className="group flex w-full gap-2 overflow-hidden border-t border-white/[0.06] py-3 text-left first:border-t-0"
+            >
+              <Thumb src={i.image} alt={i.imageAlt} />
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-3 text-[14px] leading-snug text-white/90 group-hover:text-white">
+                  {i.takeaway || i.title}{" "}
+                  {isNew && (
+                    <span className="mr-0.5 rounded-[5px] bg-emerald-500/15 px-1.5 py-px align-middle text-[11px] font-semibold uppercase tracking-wide text-emerald-400">
+                      New
+                    </span>
+                  )}
+                  <span className="whitespace-nowrap text-[13.5px] font-normal text-[#8a8a8a]">{relTime(i.published)}</span>
+                </p>
+              </div>
+            </motion.button>
+          );
+        })}
+      </AnimatePresence>
     </>
   );
 
