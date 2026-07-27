@@ -26,6 +26,7 @@ import { SignalSearchCard } from "@/components/SignalSearchCard";
 import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
+import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
 import { ComingSoonPill } from "@/components/ComingSoonPill";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
@@ -137,15 +138,27 @@ export function MonacoHome() {
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
 
   // Backend monitoring: log which feature/page a SIGNED-IN user opens (fire-and-forget; the server
-  // derives the user id from the session, guests are ignored). Feeds the activity timeline.
-  const logEvent = (event: string, detail?: unknown) => {
+  // derives the user id from the session, guests are ignored). `ms` carries the measured latency of a
+  // timed data retrieval. Feeds the activity timeline.
+  const logEvent = (event: string, detail?: unknown, ms?: number) => {
     if (!session?.user) return;
-    fetch("/api/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event, detail }) }).catch(() => {});
+    fetch("/api/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event, detail, ms }) }).catch(() => {});
   };
   useEffect(() => {
     logEvent("view", mobilePage === "dashboard" ? { page: "dashboard", tab: dashTab } : { page: mobilePage });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mobilePage, dashTab, session?.user]);
+
+  // Time every news/tab data retrieval and log the latency (server labels it fast/standard/slow).
+  // The fetch wrapper is installed once; the reporter is (de)registered with the current session so
+  // only signed-in users' retrievals are recorded.
+  useEffect(() => { installRetrievalTimer(); }, []);
+  useEffect(() => {
+    if (!session?.user) { setRetrievalReporter(null); return; }
+    setRetrievalReporter((label, ms) => logEvent("retrieval", { label }, ms));
+    return () => setRetrievalReporter(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user]);
   // Nav-condense on scroll — the same protocol BriefReveal uses (shrink after scrolling down past a
   // small threshold, restore on scroll-up or at the very top; accumulate per-direction so a tiny nudge
   // doesn't flip it). Brief drives this from inside BriefReveal (its own scroll container); the

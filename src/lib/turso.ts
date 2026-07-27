@@ -138,31 +138,54 @@ export async function recordSignIn(userId: string, email: string | null, name: s
   ]);
 }
 
-// Append one activity event for a user (sign-in, a feature view, a portfolio edit, …). Powers the
-// backend monitoring dashboard's per-user activity timeline. Best-effort — callers ignore failures.
-export async function logActivity(userId: string | null, event: string, detail: string | null): Promise<void> {
+// Append one activity event for a user (sign-in, a feature view, a portfolio edit, a timed data
+// retrieval, …). durationMs, when present, is how long that retrieval took — the dashboard shows the
+// exact lag and labels it fast/standard/slow. Powers the backend monitoring dashboard's per-user
+// activity timeline. Best-effort — callers ignore failures.
+export async function logActivity(
+  userId: string | null,
+  event: string,
+  detail: string | null,
+  durationMs: number | null = null,
+): Promise<void> {
   const now = new Date().toISOString();
+  const ms = durationMs != null && Number.isFinite(durationMs) ? Math.round(durationMs) : null;
   await pipeline([
-    { type: "execute", stmt: { sql: "INSERT INTO activity_log (user_id, ts, event, detail) VALUES (?,?,?,?)", args: [typed(userId), typed(now), typed(event), typed(detail)] } },
+    {
+      type: "execute",
+      stmt: {
+        sql: "INSERT INTO activity_log (user_id, ts, event, detail, duration_ms) VALUES (?,?,?,?,?)",
+        args: [typed(userId), typed(now), typed(event), typed(detail), typed(ms)],
+      },
+    },
   ]);
 }
 
-// Backfill/refresh a user's profile (Google email + name, last_seen) from any authenticated request,
-// WITHOUT counting it as a sign-in. This captures the identity of users who signed in before sign-in
-// recording shipped — their name/email fill in the moment they next use the app.
-export async function touchUser(userId: string, email: string | null, name: string | null): Promise<void> {
+// Backfill/refresh a user's profile (Google email + name, last_seen, and the device they're on) from
+// any authenticated request, WITHOUT counting it as a sign-in. This captures the identity of users
+// who signed in before sign-in recording shipped — their name/email fill in the moment they next use
+// the app — and keeps their most-recent device (parsed from the User-Agent) up to date.
+export async function touchUser(
+  userId: string,
+  email: string | null,
+  name: string | null,
+  device: string | null = null,
+  userAgent: string | null = null,
+): Promise<void> {
   const now = new Date().toISOString();
   await pipeline([
     {
       type: "execute",
       stmt: {
-        sql: `INSERT INTO users (user_id, email, name, first_seen, last_seen, sign_in_count)
-              VALUES (?, ?, ?, ?, ?, 0)
+        sql: `INSERT INTO users (user_id, email, name, first_seen, last_seen, sign_in_count, device, user_agent)
+              VALUES (?, ?, ?, ?, ?, 0, ?, ?)
               ON CONFLICT(user_id) DO UPDATE SET
                 email = COALESCE(excluded.email, users.email),
                 name = COALESCE(excluded.name, users.name),
-                last_seen = excluded.last_seen`,
-        args: [typed(userId), typed(email), typed(name), typed(now), typed(now)],
+                last_seen = excluded.last_seen,
+                device = COALESCE(excluded.device, users.device),
+                user_agent = COALESCE(excluded.user_agent, users.user_agent)`,
+        args: [typed(userId), typed(email), typed(name), typed(now), typed(now), typed(device), typed(userAgent)],
       },
     },
   ]);
