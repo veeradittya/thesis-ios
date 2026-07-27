@@ -11,6 +11,8 @@ import { motion, useMotionValueEvent, useScroll } from "motion/react";
 
 // Drop em dashes (—) — replace with a comma so clauses still read cleanly. En dashes (date ranges) stay.
 const deDash = (s: string) => s.replace(/\s*—\s*/g, ", ");
+// Drop a trailing run of [text](url) source links so each brief line ends at its last sentence (period).
+const stripTrailingLinks = (s: string) => s.replace(/[\s—·]*(?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)[\s—·]*)+$/, "").trimEnd();
 // Render prose with inline [text](url) links (no underline — links read as plain text).
 function renderLinked(md: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
@@ -90,7 +92,7 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
   }
   if (data?.memo) {
     // Second chunk: the headline — the day's key takeaways, one per line, highlighted + spaced.
-    const takeaways = deDash(data.memo).split(/\n+/).map((s) => s.trim()).filter(Boolean);
+    const takeaways = data.memo.split(/\n+/).map((s) => deDash(stripTrailingLinks(s.trim()))).filter(Boolean);
     sections.push({
       key: "headline",
       node: (
@@ -120,7 +122,7 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
           <span className="text-[24px] font-semibold text-white">{r.ticker}</span>
           {/* Asset paragraph: linked ("highlighted") phrases stay pure white; the connecting prose
               is a step darker (70%) than the headline to give each paragraph internal hierarchy. */}
-          <p className="mt-4 text-[18px] leading-relaxed text-white/70">{renderLinked(deDash(r.rationale))}</p>
+          <p className="mt-4 text-[18px] leading-relaxed text-white/70">{renderLinked(deDash(stripTrailingLinks(r.rationale)))}</p>
         </>
       ),
     });

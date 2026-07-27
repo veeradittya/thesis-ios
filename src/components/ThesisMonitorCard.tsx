@@ -38,6 +38,8 @@ function renderLinked(md: string): React.ReactNode[] {
 }
 // Strip markdown links + bold to plain text for the glance lines.
 const plain = (md: string) => md.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1").replace(/\*\*/g, "");
+// Drop a trailing run of [text](url) source links so the brief reads to its last sentence (period), no link trailer.
+const stripTrailingLinks = (md: string) => md.replace(/[\s—·]*(?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)[\s—·]*)+$/, "").trimEnd();
 
 // Risk band → colour (high risk = rose, low = emerald). Higher number = more risk.
 function riskColor(r: number | null): string {
@@ -145,7 +147,7 @@ export function ThesisMonitorCard({
         {data?.memo && (
           <div className="mb-1 w-full border-b border-white/[0.06] pb-3 pt-0.5">
             {stamp && <p className="text-[9px] uppercase tracking-wider text-[#8a8a8a]">{stamp}</p>}
-            <p className="mt-1 text-justify text-[12.5px] leading-snug text-white/90">{renderLinked(data.memo)}</p>
+            <p className="mt-1 text-justify text-[12.5px] leading-snug text-white/90">{renderLinked(stripTrailingLinks(data.memo))}</p>
           </div>
         )}
 
@@ -168,7 +170,7 @@ export function ThesisMonitorCard({
                     )}
                   </div>
                   <p className={cn("mt-0.5 text-[11.5px] leading-snug text-white/70", !open && "line-clamp-2")}>
-                    {open ? renderLinked(r.rationale) : plain(r.rationale)}
+                    {open ? renderLinked(stripTrailingLinks(r.rationale)) : plain(stripTrailingLinks(r.rationale))}
                   </p>
                 </div>
                 <span className="mt-0.5 shrink-0 text-[13px] leading-none text-[#6b6b6b]">{open ? "−" : "+"}</span>
