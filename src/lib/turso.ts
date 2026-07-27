@@ -146,3 +146,24 @@ export async function logActivity(userId: string | null, event: string, detail: 
     { type: "execute", stmt: { sql: "INSERT INTO activity_log (user_id, ts, event, detail) VALUES (?,?,?,?)", args: [typed(userId), typed(now), typed(event), typed(detail)] } },
   ]);
 }
+
+// Backfill/refresh a user's profile (Google email + name, last_seen) from any authenticated request,
+// WITHOUT counting it as a sign-in. This captures the identity of users who signed in before sign-in
+// recording shipped — their name/email fill in the moment they next use the app.
+export async function touchUser(userId: string, email: string | null, name: string | null): Promise<void> {
+  const now = new Date().toISOString();
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO users (user_id, email, name, first_seen, last_seen, sign_in_count)
+              VALUES (?, ?, ?, ?, ?, 0)
+              ON CONFLICT(user_id) DO UPDATE SET
+                email = COALESCE(excluded.email, users.email),
+                name = COALESCE(excluded.name, users.name),
+                last_seen = excluded.last_seen`,
+        args: [typed(userId), typed(email), typed(name), typed(now), typed(now)],
+      },
+    },
+  ]);
+}
