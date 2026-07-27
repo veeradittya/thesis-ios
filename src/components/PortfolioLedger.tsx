@@ -5,6 +5,7 @@ import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "
 import { cn } from "@/lib/utils";
 import type { ParsedPortfolio, ParsedHolding } from "@/lib/parsePortfolio";
 import { normalizeLedger, makeHolding } from "@/lib/parsePortfolio";
+import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import { BorderBeam } from "border-beam";
 
@@ -68,8 +69,11 @@ const RefreshGlyph = ({ className }: { className?: string }) => (
 );
 // Shared spring for the search magnifier ⇄ bar morph — smooth, minimal overshoot.
 const SEARCH_MORPH = { type: "spring", stiffness: 420, damping: 40 } as const;
+// Row → card expand: a firm spring with high damping so the box settles fast and clean (no wobble),
+// which keeps the non-uniform scale phase short — the window where text could look distorted.
+const CARD_MORPH = { type: "spring", stiffness: 520, damping: 46 } as const;
 
-export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onChange?: (next: ParsedPortfolio) => void }) {
+export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: { data: ParsedPortfolio; onChange?: (next: ParsedPortfolio) => void; refreshSignal?: number; onRefreshed?: () => void }) {
   const id = useId(); // scopes the shared layoutIds to this instance (Aceternity pattern)
   const [rows, setRows] = useState<DraftRow[]>(() => data.holdings.map(toDraft));
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -99,15 +103,27 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
   const total = vals.some((v) => v != null) ? vals.reduce<number>((a, v) => a + (v || 0), 0) : null;
   const weightPct = (i: number) => (total && vals[i] != null ? (vals[i]! / total) * 100 : null);
 
-  // Live prices for each holding — same REST snapshot poll + up/down tick flash as the Live Prices card.
+  // Live prices for each holding. No interval polling — we fetch once on load (seeded instantly from
+  // the local cache) and again on pull-to-refresh (refreshSignal bumps). When a fetch brings a NEW
+  // price, the number swaps in and flashes green/up or red/down; the OLD price stays until then.
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const onRefreshedRef = useRef(onRefreshed); // latest completion callback (kept out of effect deps)
+  onRefreshedRef.current = onRefreshed;
   const symbols = rows.map((r) => r.ticker.trim().toUpperCase()).filter(Boolean).join(",");
   useEffect(() => {
     if (!symbols) { setQuotes({}); return; }
-    const active = new Set(symbols.split(","));
-    setQuotes((prev) => { const next: Record<string, Quote> = {}; for (const [s, q] of Object.entries(prev)) if (active.has(s)) next[s] = q; return next; });
+    const active = symbols.split(",");
+    const activeSet = new Set(active);
+    // Seed from cache immediately (drop tickers no longer held), so prices show before the fetch.
+    const cached = readQuoteCache(active);
+    setQuotes((prev) => {
+      const next: Record<string, Quote> = {};
+      for (const [s, q] of Object.entries(prev)) if (activeSet.has(s)) next[s] = q;
+      for (const [s, c] of Object.entries(cached)) if (!next[s]) next[s] = { price: c.price, percent: c.percent, flashDir: null, flashTs: 0 };
+      return next;
+    });
     let cancelled = false;
-    const poll = async () => {
+    (async () => {
       try {
         const r = await fetch(`/api/quote?symbols=${encodeURIComponent(symbols)}`);
         const j = await r.json();
@@ -125,18 +141,21 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
           }
           return next;
         });
-      } catch {}
-    };
-    poll();
-    const iv = setInterval(poll, 15000); // 15s snapshot cadence
-    return () => { cancelled = true; clearInterval(iv); };
-  }, [symbols]);
-  // Fade tick flashes ~450ms after the last change.
+        writeQuoteCache(q);
+      } catch {
+        /* keep the old prices on a failed fetch */
+      } finally {
+        if (!cancelled) onRefreshedRef.current?.(); // let pull-to-refresh spring back once loaded
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [symbols, refreshSignal]);
+  // Fade the flash ~600ms after a price change.
   useEffect(() => {
     const iv = setInterval(() => {
       setQuotes((prev) => {
         const now = Date.now(); let changed = false; const next = { ...prev };
-        for (const k in next) if (next[k].flashDir && now - next[k].flashTs > 450) { next[k] = { ...next[k], flashDir: null }; changed = true; }
+        for (const k in next) if (next[k].flashDir && now - next[k].flashTs > 600) { next[k] = { ...next[k], flashDir: null }; changed = true; }
         return changed ? next : prev;
       });
     }, 250);
@@ -163,15 +182,28 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
   const pickSearch = (s: Sym) => { addHolding(s.symbol, s.description); setQuery(""); setResults([]); };
 
   // Portfolio-aware suggestions (Spotify-style): /api/recommend looks at the current holdings and
-  // suggests peers from a covered universe. Re-fetches whenever the holdings change.
+  // suggests peers from a covered universe. Seeded instantly from a local cache (so repeat visits
+  // never show a blank/skeleton), then refreshed. Re-fetches whenever the holdings change.
   const [suggestions, setSuggestions] = useState<Sugg[]>([]);
+  const [suggLoaded, setSuggLoaded] = useState(false); // false + empty → show the skeleton
   const [suggPage, setSuggPage] = useState(0); // refresh button cycles the suggestion pool
   useEffect(() => {
+    const cacheKey = `${symbols}|${suggPage}`;
+    try {
+      const raw = localStorage.getItem("thesis.suggestions.v1");
+      if (raw) { const c = JSON.parse(raw); if (c.k === cacheKey && Array.isArray(c.s)) { setSuggestions(c.s); setSuggLoaded(true); } }
+    } catch {}
     let cancelled = false;
     fetch(`/api/recommend?picks=${encodeURIComponent(symbols)}&page=${suggPage}`)
       .then((r) => r.json())
-      .then((j) => { if (!cancelled) setSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []); })
-      .catch(() => {});
+      .then((j) => {
+        if (cancelled) return;
+        const s = (Array.isArray(j.suggestions) ? j.suggestions : []) as Sugg[];
+        setSuggestions(s);
+        setSuggLoaded(true);
+        try { localStorage.setItem("thesis.suggestions.v1", JSON.stringify({ k: cacheKey, s })); } catch {}
+      })
+      .catch(() => { if (!cancelled) setSuggLoaded(true); });
     return () => { cancelled = true; };
   }, [symbols, suggPage]);
 
@@ -199,7 +231,7 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
                 </div>
                 <div className="shrink-0 text-right">
                   <p className={cn(
-                    "rounded px-1 text-[16px] leading-tight tabular-nums text-white transition-colors duration-200",
+                    "rounded px-1 text-[16px] leading-tight tabular-nums text-white transition-colors duration-300",
                     flash === "up" ? "bg-emerald-500/25" : flash === "down" ? "bg-rose-500/25" : "bg-transparent",
                   )}>
                     {fmtPrice(q?.price ?? null)}
@@ -218,7 +250,7 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
 
       {/* add assets — one divider, then a heading with a magnifier at the right that morphs (shared
           layoutId) into a full-width search bar right under the heading, plus the suggestions. */}
-      {suggestions.length > 0 && (
+      {symbols.length > 0 && (
         <div className="mt-3 px-1 pt-4">
           <div className="flex h-8 items-center justify-between">
             <p className="text-[12px] uppercase tracking-wider text-white">Suggested for you</p>
@@ -315,20 +347,31 @@ export function PortfolioLedger({ data, onChange }: { data: ParsedPortfolio; onC
           )}
 
           <ul className="mt-1.5 flex flex-col">
-            {suggestions.map((s) => (
-              <li key={s.symbol}>
-                <div onClick={() => addHolding(s.symbol, s.name)} role="button" tabIndex={0} className="group flex w-full cursor-pointer items-center justify-between gap-3 border-b border-white/[0.06] px-1 py-1.5 text-left transition-colors last:border-b-0 hover:bg-white/[0.02]">
-                  <div className="min-w-0">
-                    <p className="text-[16px] font-medium leading-tight text-white">{s.symbol}</p>
-                    <p className="truncate text-[13px] leading-tight text-[#8a8a8a]">{s.name} · {s.sector}</p>
-                  </div>
-                  {/* BorderBeam on the Add pill outline — the same sunset beam as the holdings card (sm preset, tuned for small elements) */}
-                  <BorderBeam size="sm" colorVariant="sunset" strength={0.83} className="shrink-0">
-                    <span className="block rounded-full border border-white/10 bg-black px-3.5 py-1 text-[13px] font-medium text-white">Add</span>
-                  </BorderBeam>
-                </div>
-              </li>
-            ))}
+            {suggestions.length === 0 && !suggLoaded
+              ? // Skeleton while the first suggestions load — so the area never looks empty.
+                Array.from({ length: 5 }).map((_, i) => (
+                  <li key={`sk-${i}`} className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-1 py-1.5 last:border-b-0">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="h-3.5 w-16 animate-pulse rounded bg-white/[0.08]" />
+                      <div className="h-3 w-40 max-w-[70%] animate-pulse rounded bg-white/[0.05]" />
+                    </div>
+                    <div className="h-7 w-14 shrink-0 animate-pulse rounded-full bg-white/[0.06]" />
+                  </li>
+                ))
+              : suggestions.map((s) => (
+                  <li key={s.symbol}>
+                    <div onClick={() => addHolding(s.symbol, s.name)} role="button" tabIndex={0} className="group flex w-full cursor-pointer items-center justify-between gap-3 border-b border-white/[0.06] px-1 py-1.5 text-left transition-colors last:border-b-0 hover:bg-white/[0.02]">
+                      <div className="min-w-0">
+                        <p className="text-[16px] font-medium leading-tight text-white">{s.symbol}</p>
+                        <p className="truncate text-[13px] leading-tight text-[#8a8a8a]">{s.name} · {s.sector}</p>
+                      </div>
+                      {/* BorderBeam on the Add pill outline — the same sunset beam as the holdings card (sm preset, tuned for small elements) */}
+                      <BorderBeam size="sm" colorVariant="sunset" strength={0.83} className="shrink-0">
+                        <span className="block rounded-full border border-white/10 bg-black px-3.5 py-1 text-[13px] font-medium text-white">Add</span>
+                      </BorderBeam>
+                    </div>
+                  </li>
+                ))}
           </ul>
         </div>
       )}
@@ -377,7 +420,7 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
   return (
     <li className="relative">
       {/* Edit pill — left, revealed on a right-swipe */}
-      <motion.div style={{ opacity: editOpacity, scale: editScale }} className="pointer-events-none absolute inset-y-0 left-0 flex origin-left items-center pl-2">
+      <motion.div style={{ opacity: editOpacity, scale: editScale, willChange: "transform, opacity" }} className="pointer-events-none absolute inset-y-0 left-0 flex origin-left items-center pl-2">
         <button
           onClick={() => { snap(0); onOpen(); }}
           className={`flex h-[calc(100%-10px)] items-center justify-center rounded-full bg-emerald-600 px-5 text-[13px] font-medium text-white ${dir === 1 ? "pointer-events-auto" : "pointer-events-none"}`}
@@ -386,7 +429,7 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
         </button>
       </motion.div>
       {/* Remove pill — right, revealed on a left-swipe */}
-      <motion.div style={{ opacity: removeOpacity, scale: removeScale }} className="pointer-events-none absolute inset-y-0 right-0 flex origin-right items-center pr-2">
+      <motion.div style={{ opacity: removeOpacity, scale: removeScale, willChange: "transform, opacity" }} className="pointer-events-none absolute inset-y-0 right-0 flex origin-right items-center pr-2">
         <button
           onClick={onRemove}
           className={`flex h-[calc(100%-10px)] items-center justify-center rounded-full bg-rose-600 px-5 text-[13px] font-medium text-white ${dir === -1 ? "pointer-events-auto" : "pointer-events-none"}`}
@@ -397,9 +440,10 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
 
       <motion.div
         drag="x"
-        style={{ x, touchAction: "pan-y" }} // let vertical scroll pass to the page; capture only horizontal
+        style={{ x, touchAction: "pan-y", willChange: "transform" }} // GPU transform; vertical scroll passes through
         dragConstraints={{ left: -OFFSET, right: OFFSET }}
         dragElastic={0.06}
+        dragMomentum={false} // no post-release coast — snap decides where it lands (cheaper on slow devices)
         onPointerDown={() => { moved.current = false; }}
         onDrag={(_, info) => { if (Math.abs(info.offset.x) > 10) moved.current = true; }}
         onDragEnd={(_, info) => { snap(info.offset.x < -46 ? -OFFSET : info.offset.x > 46 ? OFFSET : 0); }}
@@ -472,15 +516,17 @@ function ExpandedEditor({
         <motion.div
           layoutId={`card-${index}-${uid}`}
           ref={ref}
-          transition={SEARCH_MORPH}
+          transition={CARD_MORPH}
+          style={{ willChange: "transform" }}
           className="relative w-full max-w-[400px] overflow-hidden rounded-[22px] border border-white/[0.08] bg-black shadow-[0_30px_90px_rgba(0,0,0,0.7)]"
         >
-          {/* All inner content (header + form) fades in only AFTER the box has morphed, and fades out
-              fast on close — so the ticker text is never visible while the layoutId box is scaling. */}
+          {/* Inner content fades in only AFTER the box has finished morphing, and fades out almost
+              instantly on close — so the ticker/name text is never on screen while the box is being
+              non-uniformly scaled (which is what makes text look stretched/distorted). */}
           <motion.div
             initial={{ opacity: 0 }}
-            animate={{ opacity: 1, transition: { duration: 0.14, delay: 0.1 } }}
-            exit={{ opacity: 0, transition: { duration: 0.09 } }}
+            animate={{ opacity: 1, transition: { duration: 0.16, delay: 0.26 } }}
+            exit={{ opacity: 0, transition: { duration: 0.05 } }}
           >
             {/* header */}
             <div className="flex items-center gap-2.5 px-5 pt-5">

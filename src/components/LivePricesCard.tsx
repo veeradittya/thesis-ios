@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useMovableCard } from "@/components/ui/useMovableCard";
+import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
 
 interface Asset {
   ticker: string;
@@ -23,6 +24,7 @@ const fmtPct = (v: number | null) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.
 export function LivePricesCard({
   assets,
   onOpenChart,
+  refreshSignal,
   x = 1560,
   y = 110,
   width = 360,
@@ -30,6 +32,7 @@ export function LivePricesCard({
 }: {
   assets: Asset[];
   onOpenChart: (asset: Asset) => void;
+  refreshSignal?: number;
   x?: number;
   y?: number;
   width?: number;
@@ -51,10 +54,19 @@ export function LivePricesCard({
       for (const [sym, row] of Object.entries(prev)) if (active.has(sym)) next[sym] = row;
       return next;
     });
-    // REST snapshot polling (Vercel-safe) — replaces the Finnhub WebSocket→SSE relay. Each poll
-    // diffs against the last price to keep the up/down tick flash; the flash-fade effect clears it.
+    // Seed from the local cache immediately so prices show before the fetch returns.
+    const cached = readQuoteCache([...active]);
+    if (Object.keys(cached).length) {
+      setRows((prev) => {
+        const next = { ...prev };
+        for (const [sym, c] of Object.entries(cached)) if (!next[sym]) next[sym] = { price: c.price, prevClose: c.prevClose ?? null, change: c.change ?? null, percent: c.percent, flashDir: null, flashTs: 0 };
+        return next;
+      });
+    }
+    // Fetch once on load / on refreshSignal — no interval polling. Each fetch diffs against the last
+    // price to keep the up/down tick flash; the flash-fade effect clears it.
     let cancelled = false;
-    const poll = async () => {
+    (async () => {
       try {
         const r = await fetch(`/api/quote?symbols=${encodeURIComponent(symbols)}`);
         const j = await r.json();
@@ -76,16 +88,15 @@ export function LivePricesCard({
           }
           return next;
         });
+        writeQuoteCache(q);
         setStatus("live");
       } catch {
         if (!cancelled) setStatus((s) => (s === "live" ? "live" : "error"));
       }
-    };
-    poll();
-    const id = setInterval(poll, 15000); // 15s snapshot cadence
+    })();
 
-    return () => { cancelled = true; clearInterval(id); };
-  }, [symbols]);
+    return () => { cancelled = true; };
+  }, [symbols, refreshSignal]);
 
   // Fade out tick flashes ~450ms after the last trade (only re-renders when needed).
   useEffect(() => {

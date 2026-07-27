@@ -93,16 +93,22 @@ async function peersOf(ticker: string, key: string): Promise<string[]> {
 
 const PAGE = 7;
 const SECTOR_CAP = 3;
+const PEER_BUDGET_MS = 600; // never block the section longer than this on live peer calls
 
 // picks → 7 diversified suggestions from the covered universe. `page` cycles the pool (refresh).
 export async function recommend(picks: string[], page = 0): Promise<Suggestion[]> {
   const key = process.env.FINNHUB_API_KEY;
   const pickSet = new Set(picks.map((p) => p.trim().toUpperCase()).filter(Boolean));
 
-  // Peer-overlap score: how many of the user's picks list this symbol as a sector peer.
+  // Peer-overlap score: how many of the user's picks list this symbol as a sector peer. This only
+  // REORDERS a fixed universe, so it's never worth stalling the UI: race the live Finnhub calls
+  // against a short budget and fall back to the popularity ranking if they don't beat it. The
+  // in-flight fetches still populate the module cache, so warm requests get the personalised order.
   const peerScore = new Map<string, number>();
   if (key && pickSet.size) {
-    const lists = await Promise.all([...pickSet].slice(0, 8).map((p) => peersOf(p, key)));
+    const all = Promise.all([...pickSet].slice(0, 8).map((p) => peersOf(p, key)));
+    const budget = new Promise<string[][]>((resolve) => setTimeout(() => resolve([]), PEER_BUDGET_MS));
+    const lists = await Promise.race([all, budget]);
     for (const list of lists) for (const s of list) peerScore.set(s, (peerScore.get(s) || 0) + 1);
   }
 

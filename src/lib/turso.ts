@@ -186,6 +186,29 @@ export async function logActivity(
   ]);
 }
 
+// Append MANY activity events for a user in a single DB round-trip (all INSERTs in one pipeline).
+// The client batches its events and flushes them together, so one page's worth of activity is one
+// write instead of one-per-event. Each event carries its own client timestamp so ordering/timing is
+// preserved despite the delayed flush. Best-effort.
+export async function logActivityBatch(
+  userId: string,
+  events: Array<{ event: string; detail?: string | null; durationMs?: number | null; ts?: string | null }>,
+): Promise<void> {
+  if (!events.length) return;
+  const requests = events.map((e) => {
+    const ms = e.durationMs != null && Number.isFinite(e.durationMs) ? Math.round(e.durationMs) : null;
+    const ts = e.ts && !Number.isNaN(Date.parse(e.ts)) ? e.ts : new Date().toISOString();
+    return {
+      type: "execute",
+      stmt: {
+        sql: "INSERT INTO activity_log (user_id, ts, event, detail, duration_ms) VALUES (?,?,?,?,?)",
+        args: [typed(userId), typed(ts), typed(e.event), typed(e.detail ?? null), typed(ms)],
+      },
+    };
+  });
+  await pipeline(requests);
+}
+
 // Backfill/refresh a user's profile (Google email + name, last_seen, and the device they're on) from
 // any authenticated request, WITHOUT counting it as a sign-in. This captures the identity of users
 // who signed in before sign-in recording shipped — their name/email fill in the moment they next use

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
@@ -27,6 +27,7 @@ import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
 import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
+import { PullToRefresh } from "@/components/PullToRefresh";
 import { ComingSoonPill } from "@/components/ComingSoonPill";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
@@ -135,15 +136,51 @@ export function MonacoHome() {
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
+  const [priceRefresh, setPriceRefresh] = useState(0); // bumped by pull-to-refresh to re-fetch live prices
+  const priceRefreshResolve = useRef<(() => void) | null>(null); // resolves when the triggered fetch lands
+  // Pull-to-refresh handler: bump the signal and resolve once PortfolioLedger reports the fetch done,
+  // so the gesture springs back exactly when the fresh prices are ready. MUST be stable (useCallback)
+  // — if its identity changed each render, PullToRefresh's effect would tear down and stop the
+  // in-flight spring-back animation.
+  const refreshPrices = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        priceRefreshResolve.current = resolve;
+        setPriceRefresh((n) => n + 1);
+      }),
+    [],
+  );
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
 
-  // Backend monitoring: log which feature/page a SIGNED-IN user opens (fire-and-forget; the server
-  // derives the user id from the session, guests are ignored). `ms` carries the measured latency of a
-  // timed data retrieval. Feeds the activity timeline.
+  // Backend monitoring: log which feature/page a SIGNED-IN user opens + timed retrievals. Events are
+  // QUEUED and flushed in a single batched POST (debounced ~1.5s, and on page-hide) instead of one
+  // request per event — the server writes the whole batch in one DB round-trip. Guests are ignored.
+  const activityQueue = useRef<Array<{ event: string; detail?: unknown; ms?: number; ts: string }>>([]);
+  const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushActivity = useCallback(() => {
+    if (flushTimer.current) { clearTimeout(flushTimer.current); flushTimer.current = null; }
+    const events = activityQueue.current;
+    if (!events.length) return;
+    activityQueue.current = [];
+    // keepalive so an in-flight flush still completes if the page is being torn down.
+    fetch("/api/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ events }), keepalive: true }).catch(() => {});
+  }, []);
   const logEvent = (event: string, detail?: unknown, ms?: number) => {
     if (!session?.user) return;
-    fetch("/api/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event, detail, ms }) }).catch(() => {});
+    activityQueue.current.push({ event, detail, ms, ts: new Date().toISOString() });
+    if (!flushTimer.current) flushTimer.current = setTimeout(flushActivity, 1500);
   };
+  // Flush the queue when the tab is hidden/closed so nothing is lost.
+  useEffect(() => {
+    const onHide = () => { if (document.visibilityState === "hidden") flushActivity(); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushActivity);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushActivity);
+      flushActivity(); // flush anything pending on unmount
+    };
+  }, [flushActivity]);
   useEffect(() => {
     logEvent("view", mobilePage === "dashboard" ? { page: "dashboard", tab: dashTab } : { page: mobilePage });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -718,9 +755,17 @@ export function MonacoHome() {
             ) : mobilePage === "portfolio" ? (
               // "Portfolio" tab — the ledger embedded straight on the black background (no card):
               // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
-              <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
-                <PortfolioLedger data={ledger} onChange={setLedger} />
-              </div>
+              // Prices load once (from cache, then one fetch); pull down to refresh them.
+              <PullToRefresh onRefresh={refreshPrices}>
+                <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
+                  <PortfolioLedger
+                    data={ledger}
+                    onChange={setLedger}
+                    refreshSignal={priceRefresh}
+                    onRefreshed={() => { priceRefreshResolve.current?.(); priceRefreshResolve.current = null; }}
+                  />
+                </div>
+              </PullToRefresh>
             ) : (
               // "Dashboard" tab — split into three sliding sub-tabs: News · Prediction Markets · Extra.
               <div className="flex flex-col gap-3.5 px-3.5 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
