@@ -70,7 +70,10 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
   const [active, setActive] = useState(0);
 
   const stamp = fmtDateTime(data?.updatedAt ?? null);
-  const results = data?.results ?? [];
+  // Only holdings the agent has actually written up become sections. A freshly-added stock has no
+  // research yet (empty rationale), so it would otherwise render as an empty block under its ticker —
+  // skip it and let the memo + already-researched holdings stand until the next brief is generated.
+  const results = (data?.results ?? []).filter((r) => (r.rationale || "").trim().length > 0);
   // headline first, then one section per holding (API already sorts by risk desc → TSLA leads)
   const sections: Array<{ key: string; node: React.ReactNode }> = [];
   if (data && (data.memo || results.length)) {
