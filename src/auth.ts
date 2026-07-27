@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { recordSignIn, logActivity } from "@/lib/turso";
+import { recordSignIn, logActivity, getCanonicalUserId } from "@/lib/turso";
 
 // Auth.js (NextAuth v5) — Google sign-in with stateless JWT sessions (no DB yet).
 // The Google provider auto-reads AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET; AUTH_SECRET signs
@@ -14,8 +14,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // (JWT strategy, no DB adapter) mints a fresh random UUID for `token.sub` on every new
     // session/device, so the same Google account would fragment into many "users" — one per sign-in.
     // `profile` is only present on the initial sign-in; afterwards the pinned value rides in the JWT.
-    jwt({ token, profile }) {
-      if (profile?.sub) token.sub = String(profile.sub);
+    async jwt({ token, profile }) {
+      if (profile?.sub) {
+        token.sub = String(profile.sub);
+        return token;
+      }
+      // Self-heal LEGACY sessions minted before this fix: their token.sub is a random UUID (not a
+      // numeric Google sub). Resolve the stable id from the DB by email, once — this callback runs
+      // whenever the session is accessed, and the updated token is re-issued to the cookie, so the
+      // lookup stops as soon as the id is healed. No re-login needed.
+      if (token.sub && token.email && !/^\d+$/.test(token.sub)) {
+        try {
+          const canonical = await getCanonicalUserId(token.email as string);
+          if (canonical) token.sub = canonical;
+        } catch {
+          /* keep the existing id if the lookup fails; never block auth */
+        }
+      }
       return token;
     },
     // Surface that same stable per-account id on the client session so every write (holdings,

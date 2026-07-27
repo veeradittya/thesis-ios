@@ -93,6 +93,17 @@ export async function getLatestMonitor(userId: string): Promise<MonitorPayload> 
   return { memo, updatedAt, results };
 }
 
+// Resolve the STABLE Google-sub user id for an email — the canonical row whose user_id is all
+// digits (the Google `sub`). Used to heal legacy sessions whose token.sub is a pre-fix random UUID.
+// Returns null if no Google-sub row exists yet for that email.
+export async function getCanonicalUserId(email: string): Promise<string | null> {
+  const rows = await query("SELECT user_id, sign_in_count FROM users WHERE email=?", [email]);
+  const numeric = rows
+    .filter((r) => /^\d+$/.test(r.user_id || ""))
+    .sort((a, b) => Number(b.sign_in_count ?? 0) - Number(a.sign_in_count ?? 0));
+  return numeric[0]?.user_id ?? null;
+}
+
 // Read a user's holdings back out of Turso (the account's server-side portfolio). Lets the app
 // restore an account's portfolio on a device that has no local copy yet, so it follows the account.
 export async function getHoldings(
