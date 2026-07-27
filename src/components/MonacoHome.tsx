@@ -706,7 +706,7 @@ export function MonacoHome() {
               {/* Analyst Sentiment — placeholder: a thinking-orb pill with the market-hours readout,
                   centered on the page. */}
               {dashTab === "extra" && (
-                <div className="flex min-h-[calc(100dvh-180px)] items-center justify-center">
+                <div className="flex min-h-[calc(100dvh-280px)] items-center justify-center">
                   <ComingSoonPill />
                 </div>
               )}
