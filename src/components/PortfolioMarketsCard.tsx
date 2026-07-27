@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { cn } from "@/lib/utils";
-import type { MarketsPayload, MarketLite, MarketEvent, EventOutcomeLite } from "@/lib/oddpool";
+import type { MarketLite, MarketEvent, EventOutcomeLite } from "@/lib/oddpool";
 import type { ParsedHolding } from "@/lib/parsePortfolio";
 import type { EventStub } from "@/components/EventDetailCard";
 import { useMovableCard } from "@/components/ui/useMovableCard";
+import { marketsSig, getMarketsEntry, ensureMarkets, subscribeMarkets, MARKETS_TTL } from "@/lib/marketsStore";
 
 // Markets thinner than this (trade volume, USD) are hidden — too illiquid to be worth surfacing.
 const MIN_VOLUME = 2000;
@@ -39,9 +40,6 @@ export function PortfolioMarketsCard({
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("markets", { x, y, w: width, h: height }, { minW: 360, minH: 260 });
 
-  const [data, setData] = useState<MarketsPayload | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggle = (t: string) =>
     setExpanded((prev) => {
@@ -51,37 +49,21 @@ export function PortfolioMarketsCard({
       return n;
     });
 
-  // Signature over the fields the query depends on — refetch only when holdings meaningfully change.
-  const sig = useMemo(() => JSON.stringify(holdings.map((h) => [h.ticker, h.name, h.weight])), [holdings]);
-  const loadedRef = useRef(false); // once we have data, refetch silently (keep old rows, no spinner)
-
+  // Markets come from a shared cache (lib/marketsStore) that the app prefetches on launch and keeps
+  // across mounts — so leaving and returning to this tab paints instantly instead of re-showing the
+  // "Scanning live markets…" spinner. We just subscribe here and nudge a refresh on the same cadence.
+  const sig = useMemo(() => marketsSig(holdings), [holdings]);
+  const entry = useSyncExternalStore(subscribeMarkets, () => getMarketsEntry(sig), () => undefined);
   useEffect(() => {
-    let cancelled = false;
-    const body = JSON.stringify({ holdings: holdings.map((h) => ({ ticker: h.ticker, name: h.name, weight: h.weight })) });
-    const load = () =>
-      fetch("/api/prediction/markets", { method: "POST", headers: { "Content-Type": "application/json" }, body })
-        .then((r) => r.json())
-        .then((j) => {
-          if (cancelled) return;
-          if (j.error) {
-            if (!loadedRef.current) setErr(j.error);
-          } else {
-            setData(j);
-            loadedRef.current = true;
-            setErr(null);
-          }
-        })
-        .catch(() => { if (!cancelled && !loadedRef.current) setErr("Couldn't load markets."); })
-        .finally(() => { if (!cancelled) setLoading(false); });
-    const t = setTimeout(load, loadedRef.current ? 400 : 0); // debounce edits; first load fires immediately
-    const id = setInterval(load, 600_000); // refresh odds every 10 min
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-      clearInterval(id);
-    };
+    ensureMarkets(holdings);
+    const id = setInterval(() => ensureMarkets(holdings, { force: true }), MARKETS_TTL);
+    return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
+
+  const data = entry?.payload ?? null;
+  const err = data ? null : entry?.err ?? null;
+  const loading = !data && !err; // spinner only when we have nothing cached yet
 
   // Drop events under MIN_VOLUME (by total trade volume), recompute each asset's count from the
   // survivors, and hide any asset left with no events at all.

@@ -25,6 +25,8 @@ import { SearchCard, type SearchMode } from "@/components/SearchCard";
 import { SignalSearchCard } from "@/components/SignalSearchCard";
 import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
+import { ensureMarkets } from "@/lib/marketsStore";
+import { ComingSoonPill } from "@/components/ComingSoonPill";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -162,6 +164,13 @@ export function MonacoHome() {
   const firstName = (session?.user?.name || "").trim().split(/\s+/)[0] || null; // names the seeded ledger for a signed-in user
   // Shared scope tying the ledger, the scheduled agent, and the Daily Briefing together (demo = one portfolio).
   const MONITOR_USER = "pilot";
+
+  // Prefetch Asset Related Markets as soon as the ledger is ready — regardless of which page/tab is
+  // showing — so opening the Markets tab paints from the shared cache instead of the "Scanning live
+  // markets…" spinner. Cheap + de-duped in lib/marketsStore (TTL + in-flight guard).
+  useEffect(() => {
+    if (ledger) ensureMarkets(ledger.holdings);
+  }, [ledger]);
 
   // Ephemeral "coming soon" pill for not-yet-built nav items.
   const [toast, setToast] = useState<string | null>(null);
@@ -663,8 +672,8 @@ export function MonacoHome() {
                 </>
               )}
 
-              {/* Prediction Markets — the market trio (markets · macro · search) + chat + whale, each
-                  immediately followed by the cards it spawns, so a spawned card opens right after its origin. */}
+              {/* Prediction Markets — markets · macro · whale · chat · search, each immediately followed
+                  by the cards it spawns, so a spawned card opens right after its origin. */}
               {dashTab === "markets" && (
                 <>
                   <MobileSlot h={MOBILE_CARD_HEIGHTS.markets}><PortfolioMarketsCard holdings={ledger.holdings} onOpenMarket={openMarket} onOpenEvent={openEvent} /></MobileSlot>
@@ -679,6 +688,10 @@ export function MonacoHome() {
                     <MobileSlot key={ev.eventKey} h={560}><MacroEventCard event={ev} onClose={() => closeMacroEvent(ev.eventKey)} /></MobileSlot>
                   ))}
 
+                  <MobileSlot h={MOBILE_CARD_HEIGHTS.whale}><WhaleCard /></MobileSlot>
+
+                  <MobileSlot h={MOBILE_CARD_HEIGHTS.chat}><OddpoolChatCard portfolio={portfolioCtx} /></MobileSlot>
+
                   {search && (
                     <MobileSlot h={MOBILE_CARD_HEIGHTS.search}>
                       <SearchCard mode={search.mode} onModeChange={(m) => setSearch((prev) => (prev ? { ...prev, mode: m } : prev))} onClose={closeSearch} onOpenEvent={openEvent} onOpenMarket={openMarket} />
@@ -687,15 +700,15 @@ export function MonacoHome() {
                   {openEvents.map((ev) => (
                     <MobileSlot key={ev.event_id} h={600}><EventDetailCard event={ev} onClose={() => closeEvent(ev.event_id)} onOpenMarket={openMarket} /></MobileSlot>
                   ))}
-
-                  <MobileSlot h={MOBILE_CARD_HEIGHTS.chat}><OddpoolChatCard portfolio={portfolioCtx} /></MobileSlot>
-                  <MobileSlot h={MOBILE_CARD_HEIGHTS.whale}><WhaleCard /></MobileSlot>
                 </>
               )}
 
-              {/* Extra — the market-hours clock. */}
+              {/* Analyst Sentiment — placeholder: a thinking-orb pill with the market-hours readout,
+                  centered on the page. */}
               {dashTab === "extra" && (
-                <MobileSlot h={MOBILE_CARD_HEIGHTS.hours}><MarketHoursCard /></MobileSlot>
+                <div className="flex min-h-[calc(100dvh-180px)] items-center justify-center">
+                  <ComingSoonPill />
+                </div>
               )}
               </div>
             )}

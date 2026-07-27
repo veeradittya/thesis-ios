@@ -200,3 +200,25 @@ body {
   83.33% { background-position: calc(0*100%/3) 50%, calc(1*100%/3) 50%, calc(2*100%/3) 50%, calc(3*100%/3) 100%; }
   100%   { background-position: calc(0*100%/3) 50%, calc(1*100%/3) 50%, calc(2*100%/3) 50%, calc(3*100%/3) 50%; }
 }
+
+/* "Coming Soon" placeholder text — a bright band sweeps across the letters left → right. */
+@keyframes coming-soon-shimmer {
+  0%   { background-position: 250% 0; }
+  100% { background-position: -150% 0; }
+}
+.shimmer-coming-soon {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.28) 38%,
+    rgba(255, 255, 255, 0.95) 50%,
+    rgba(255, 255, 255, 0.28) 62%,
+    rgba(255, 255, 255, 0.28) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: coming-soon-shimmer 3s linear infinite;
+}

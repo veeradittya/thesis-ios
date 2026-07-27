@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useMovableCard } from "@/components/ui/useMovableCard";
 import { ContextMenu, type MenuItem } from "@/components/ContextMenu";
@@ -12,14 +12,6 @@ interface MacroDist { eventKey: string; seq: number; publishedTs: number; outcom
 export interface MacroEvent { eventKey: string; title: string; type: string; category: string | null; label: string | null; agency: string | null; description: string | null; sourceUrl: string | null; venues: string[]; releaseAt: string }
 
 const pct = (x: number | null | undefined) => (x == null ? "—" : `${Math.round(x * 100)}%`);
-function fmtUSD(v: number | null | undefined): string {
-  if (v == null) return "—";
-  const a = Math.abs(v);
-  if (a >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-  if (a >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
-  return `$${Math.round(v)}`;
-}
 function countdown(iso: string, now: number): string {
   const t = Date.parse(iso);
   if (isNaN(t)) return "";
@@ -40,24 +32,20 @@ export function MacroSignalsCard({
   y = 180,
   width = 440,
   height = 520,
-  onClose,
   onOpenEvent,
 }: {
   x?: number;
   y?: number;
   width?: number;
   height?: number;
-  onClose: () => void;
+  onClose: () => void; // retained for API compatibility — the in-card close (✕) button was removed
   onOpenEvent: (ev: MacroEvent) => void;
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("macro", { x, y, w: width, h: height }, { minW: 340, minH: 260 });
   const [events, setEvents] = useState<MacroEvent[]>([]);
   const [dists, setDists] = useState<Record<string, MacroDist>>({});
-  const [vols, setVols] = useState<Record<string, number>>({});
   const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
   const [now, setNow] = useState(() => Date.now());
-  const [flash, setFlash] = useState<Record<string, { dir: "up" | "down"; ts: number }>>({});
-  const prevTop = useRef<Record<string, number>>({});
   const [dismissed, setDismissed] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem(DISMISS_KEY) || "[]")); } catch { return new Set(); }
   });
@@ -67,12 +55,8 @@ export function MacroSignalsCard({
   const [menu, setMenu] = useState<{ vx: number; vy: number; eventKey: string | null } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Merge a distribution into state + flash the pill on a top-outcome change.
+  // Merge a live distribution into state.
   const applyDist = useCallback((d: MacroDist) => {
-    const top = d.outcomes?.[0]?.prob ?? null;
-    const prev = prevTop.current[d.eventKey];
-    if (top != null && prev != null && top !== prev) setFlash((f) => ({ ...f, [d.eventKey]: { dir: top > prev ? "up" : "down", ts: Date.now() } }));
-    if (top != null) prevTop.current[d.eventKey] = top;
     setDists((p) => ({ ...p, [d.eventKey]: d }));
     setStatus("live");
   }, []);
@@ -86,16 +70,7 @@ export function MacroSignalsCard({
     return () => es.close();
   }, [applyDist]);
 
-  // Volume (REST batch for the default set) — give dist a few seconds, then poll.
-  useEffect(() => {
-    let alive = true;
-    const load = () => fetch("/api/macro/volumes").then((r) => r.json()).then((j) => { if (alive && j?.volumes) setVols((p) => ({ ...p, ...j.volumes })); }).catch(() => {});
-    const t = setTimeout(load, 3000);
-    const id = setInterval(load, 120000);
-    return () => { alive = false; clearTimeout(t); clearInterval(id); };
-  }, []);
-
-  // Added (non-default) signals each get their own live dist stream + a volume lookup.
+  // Added (non-default) signals each get their own live dist stream.
   const extraStr = added.filter((a) => !events.some((e) => e.eventKey === a.eventKey)).map((a) => a.eventKey).join("|");
   useEffect(() => {
     if (!extraStr) return;
@@ -105,24 +80,11 @@ export function MacroSignalsCard({
       es.addEventListener("dist", (e) => { try { applyDist(JSON.parse((e as MessageEvent).data)); } catch {} });
       return es;
     });
-    const vt = setTimeout(() => {
-      keys.forEach((k) =>
-        fetch(`/api/macro/event/volumes?key=${encodeURIComponent(k)}`).then((r) => r.json()).then((j) => {
-          if (j?.volumes) { const tot = Object.values(j.volumes as Record<string, number>).reduce((s, v) => s + v, 0); if (tot > 0) setVols((p) => ({ ...p, [k]: tot })); }
-        }).catch(() => {}),
-      );
-    }, 3500);
-    return () => { srcs.forEach((es) => es.close()); clearTimeout(vt); };
+    return () => { srcs.forEach((es) => es.close()); };
   }, [extraStr, applyDist]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 30000);
-    return () => clearInterval(id);
-  }, []);
-  useEffect(() => {
-    const id = setInterval(() => {
-      setFlash((f) => { const n = Date.now(); let ch = false; const o = { ...f }; for (const k in o) if (n - o[k].ts > 500) { delete o[k]; ch = true; } return ch ? o : f; });
-    }, 300);
     return () => clearInterval(id);
   }, []);
 
@@ -164,26 +126,14 @@ export function MacroSignalsCard({
       className="fade-in absolute flex flex-col overflow-hidden rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)]"
     >
       {/* header — drag handle */}
-      <div {...dragHandle} className="flex shrink-0 cursor-move touch-none select-none items-start justify-between gap-3 px-5 pt-4 pb-3">
-        <div>
-          <h2 className="text-[16px] font-semibold text-white">Macro Signals</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {status !== "live" && (
-            <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{status === "connecting" ? "connecting…" : "reconnecting…"}</span>
-          )}
-          <button
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={onClose}
-            title="Close"
-            className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-[#8a8a8a] transition-colors hover:bg-white/10 hover:text-white"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-          </button>
-        </div>
+      <div {...dragHandle} className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 px-5 pt-4 pb-3">
+        <h2 className="text-[16px] font-semibold text-white">Macro Signals</h2>
+        {status !== "live" && (
+          <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{status === "connecting" ? "connecting…" : "reconnecting…"}</span>
+        )}
       </div>
 
-      {/* body — event rows */}
+      {/* body — event rows, each with its full outcome distribution */}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-1.5">
         {status === "connecting" && !shown.length && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Connecting to macro feed…</p>}
         {status === "error" && !shown.length && <p className="mt-10 text-center text-[13px] text-rose-400">Macro feed unavailable.</p>}
@@ -193,39 +143,35 @@ export function MacroSignalsCard({
 
         {shown.map((ev) => {
           const d = dists[ev.eventKey];
-          const top = d?.outcomes?.[0];
-          const liq = (d?.outcomes || []).reduce((s, o) => s + (o.depthUsd || 0), 0);
-          const vol = vols[ev.eventKey];
           const cd = countdown(ev.releaseAt, now);
           const t = Date.parse(ev.releaseAt);
           const soon = !isNaN(t) && t - now < 24 * 3600_000;
-          const fl = flash[ev.eventKey];
+          const outs = (d?.outcomes ?? []).filter((o) => o.prob != null); // skip outcomes with no quote yet
           return (
             <div key={ev.eventKey} data-event-key={ev.eventKey} className="border-t border-white/[0.06] py-2.5 first:border-t-0">
-              <button onClick={() => onOpenEvent(ev)} title="Open event detail · right-click to add/close" className="group block w-full text-left">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="truncate text-[12.5px] font-medium text-white/90 group-hover:text-white">{ev.title}</span>
-                  <span className={cn("shrink-0 text-[11px] tabular-nums", cd === "now" || soon ? "text-amber-300" : "text-[#8a8a8a]")}>
-                    {cd === "now" ? "now" : `in ${cd}`}
-                  </span>
-                </div>
-                {d ? (
-                  <div className="mt-1 flex items-center gap-3 text-[11px] tabular-nums text-[#8a8a8a]">
-                    <span className="shrink-0">Liq <span className="text-white/80">{liq > 0 ? fmtUSD(liq) : "—"}</span></span>
-                    <span className="shrink-0">Vol <span className="text-white/80">{vol != null ? fmtUSD(vol) : "—"}</span></span>
-                    {top && (
-                      <span className="ml-auto flex min-w-0 items-center gap-1.5" title={`Leading: ${top.label}`}>
-                        <span className="truncate text-[10.5px] text-[#8a8a8a]">{top.label}</span>
-                        <span className={cn("shrink-0 rounded px-1 py-px text-[10px] font-semibold transition-colors", fl?.dir === "up" ? "bg-emerald-500/25 text-emerald-300" : fl?.dir === "down" ? "bg-rose-500/25 text-rose-300" : "bg-white/[0.06] text-emerald-400")}>
-                        {pct(top.prob)}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <p className="mt-1 text-[11px] text-[#666]">Awaiting quotes…</p>
-                )}
+              {/* event title (full text, wraps) + countdown */}
+              <button onClick={() => onOpenEvent(ev)} title="Open event detail · right-click to add/close" className="group flex w-full items-start justify-between gap-3 text-left">
+                <span className="min-w-0 flex-1 text-[12.5px] font-medium leading-[1.3] text-white/90 group-hover:text-white">{ev.title}</span>
+                <span className={cn("mt-px shrink-0 text-[11px] tabular-nums", cd === "now" || soon ? "text-amber-300" : "text-[#8a8a8a]")}>
+                  {cd === "now" ? "now" : `in ${cd}`}
+                </span>
               </button>
+
+              {/* every priced outcome with its probability (full text, wraps) */}
+              {outs.length ? (
+                <div className="ml-1 mt-1.5 border-l border-white/[0.08] pl-2.5">
+                  {outs.map((o) => (
+                    <div key={o.outcome} className="flex w-full items-start gap-2 py-1">
+                      <span className="min-w-0 flex-1 text-[11.5px] leading-[1.3] text-white/75">{o.label}</span>
+                      <span className={cn("mt-px shrink-0 text-right text-[11.5px] tabular-nums", (o.prob ?? 0) >= 0.5 ? "text-emerald-400" : "text-white/90")}>
+                        {pct(o.prob)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 text-[11px] text-[#666]">Awaiting quotes…</p>
+              )}
             </div>
           );
         })}
