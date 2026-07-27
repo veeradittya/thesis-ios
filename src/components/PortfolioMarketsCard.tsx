@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { MarketsPayload, MarketLite } from "@/lib/oddpool";
+import type { MarketsPayload, MarketLite, MarketEvent, EventOutcomeLite } from "@/lib/oddpool";
 import type { ParsedHolding } from "@/lib/parsePortfolio";
 import type { EventStub } from "@/components/EventDetailCard";
 import { useMovableCard } from "@/components/ui/useMovableCard";
@@ -83,18 +83,24 @@ export function PortfolioMarketsCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  // Drop markets under MIN_VOLUME, recompute each asset's count from the survivors, and hide any
-  // asset left with no markets at all.
+  // Drop events under MIN_VOLUME (by total trade volume), recompute each asset's count from the
+  // survivors, and hide any asset left with no events at all.
   const assets = useMemo(
     () =>
       (data?.assets ?? [])
         .map((a) => {
-          const markets = a.markets.filter((m) => (m.volume ?? 0) >= MIN_VOLUME);
-          return { ...a, markets, count: markets.length };
+          const events = a.events.filter((e) => (e.volume ?? 0) >= MIN_VOLUME);
+          return { ...a, events, count: events.length };
         })
-        .filter((a) => a.markets.length > 0),
+        .filter((a) => a.events.length > 0),
     [data],
   );
+
+  // An event's outcome → the MarketLite the market-detail card expects.
+  const outcomeToLite = (o: EventOutcomeLite, ev: MarketEvent): MarketLite => ({
+    market_id: o.market_id, question: o.question, exchange: ev.exchange,
+    yes: o.yes, volume: o.volume, liquidity: o.liquidity, event_id: ev.event_id,
+  });
 
   return (
     <div
@@ -117,7 +123,7 @@ export function PortfolioMarketsCard({
 
         {assets.map((a) => {
           const isExp = expanded.has(a.ticker);
-          const shown = isExp ? a.markets : a.markets.slice(0, 8);
+          const shown = isExp ? a.events : a.events.slice(0, 6);
           return (
             <div key={a.ticker} className="mb-3 last:mb-0">
               <div className="flex items-baseline justify-between border-b border-white/[0.06] pb-1">
@@ -125,39 +131,51 @@ export function PortfolioMarketsCard({
                   <span className="text-[13px] font-semibold text-white">{a.ticker}</span>
                   <span className="text-[11px] text-[#8a8a8a]">{a.label}</span>
                 </div>
-                <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{a.count} mkts</span>
               </div>
-              {shown.map((m) =>
-                m.eventCount ? (
-                  // Multi-outcome event → one row that opens the whole event (outcomes are labeled inside)
+              {shown.map((ev) =>
+                ev.single ? (
+                  // Single-market event → one inline line: question, YES%, volume.
                   <button
-                    key={m.event_id}
-                    onClick={() => onOpenEvent?.({ event_id: m.event_id, exchange: m.exchange, title: m.question, category: null })}
-                    className="-mx-2 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
+                    key={ev.event_id}
+                    onClick={() => onOpenMarket(outcomeToLite(ev.outcomes[0], ev), a.ticker)}
+                    className="-mx-2 flex w-full items-start gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
                   >
-                    <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{m.question}</span>
-                    <span className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/[0.07] py-0.5 pl-2 pr-1 text-[10px] font-medium text-[#cdcdcd]">
-                      {m.eventCount} markets
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
+                    <span className="line-clamp-3 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{ev.title}</span>
+                    <span className={cn("mt-px w-8 shrink-0 text-right text-[12px] tabular-nums", (ev.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white")}>
+                      {pct(ev.yes)}
                     </span>
+                    <span className="mt-px w-11 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(ev.volume)}</span>
                   </button>
                 ) : (
-                  <button
-                    key={m.market_id}
-                    onClick={() => onOpenMarket(m, a.ticker)}
-                    className="-mx-2 flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04]"
-                  >
-                    <span className="line-clamp-2 min-w-0 flex-1 text-[12px] leading-[1.25] text-white/90">{m.question}</span>
-                    <span className={cn("mt-px w-9 shrink-0 text-right text-[12px] tabular-nums", (m.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white")}>
-                      {pct(m.yes)}
-                    </span>
-                    <span className="mt-px w-12 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(m.volume)}</span>
-                  </button>
+                  // Multi-outcome event → title header (opens the full event) + every outcome below it.
+                  <div key={ev.event_id} className="mt-1.5">
+                    <button
+                      onClick={() => onOpenEvent?.({ event_id: ev.event_id, exchange: ev.exchange, title: ev.title, category: ev.category })}
+                      className="group -mx-2 flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left transition-colors hover:bg-white/[0.04]"
+                    >
+                      <span className="line-clamp-3 min-w-0 flex-1 text-[12px] font-medium leading-[1.25] text-white/90">{ev.title}</span>
+                    </button>
+                    <div className="ml-1 border-l border-white/[0.08] pl-2.5">
+                      {ev.outcomes.map((o) => (
+                        <button
+                          key={o.market_id}
+                          onClick={() => onOpenMarket(outcomeToLite(o, ev), a.ticker)}
+                          className="-mx-1 flex w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-white/[0.04]"
+                        >
+                          <span className="line-clamp-2 min-w-0 flex-1 text-[11.5px] text-white/75">{o.label}</span>
+                          <span className={cn("w-8 shrink-0 text-right text-[11.5px] tabular-nums", (o.yes ?? 0) >= 0.5 ? "text-emerald-400" : "text-white/90")}>
+                            {pct(o.yes)}
+                          </span>
+                          <span className="w-11 shrink-0 text-right text-[10px] tabular-nums text-[#8a8a8a]">{fmtUSD(o.volume)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ),
               )}
-              {a.markets.length > 8 && (
+              {a.events.length > 6 && (
                 <button onClick={() => toggle(a.ticker)} className="mt-1 pl-3.5 text-[10px] text-[#8a8a8a] transition-colors hover:text-white">
-                  {isExp ? "Show less" : `+${a.markets.length - 8} more`}
+                  {isExp ? "Show less" : `+${a.events.length - 6} more`}
                 </button>
               )}
             </div>

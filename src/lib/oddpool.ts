@@ -370,13 +370,33 @@ export interface MarketLite {
   volume: number | null;
   liquidity: number | null;
   event_id: string;
-  eventCount?: number; // set when this row stands in for a multi-outcome event (N sub-markets, same question)
+}
+// One outcome (sub-market) of an event — carries its own YES probability + trade volume.
+export interface EventOutcomeLite {
+  market_id: string;
+  question: string;   // the raw market question
+  label: string;      // concise distinguisher within the event ("August 31", "NVIDIA", …)
+  yes: number | null;
+  volume: number | null;
+  liquidity: number | null;
+}
+// A prediction-market event grouped under a holding. `single` events are one yes/no market
+// (rendered inline, YES + volume on the same line); multi-outcome events list every outcome.
+export interface MarketEvent {
+  event_id: string;
+  exchange: string;
+  title: string;               // event title (single events: the market question)
+  category: string | null;
+  single: boolean;
+  yes: number | null;          // single → the outcome's YES; multi → null
+  volume: number | null;       // total trade volume across outcomes
+  outcomes: EventOutcomeLite[]; // length ≥ 1 (single events: the lone market)
 }
 export interface MarketsAsset {
   ticker: string;
   label: string;
-  count: number;
-  markets: MarketLite[];
+  count: number;      // number of events under this asset
+  events: MarketEvent[];
 }
 export interface MarketsPayload {
   source: string;
@@ -464,6 +484,55 @@ function normalizeQuestion(q: string): string {
     .trim();
 }
 
+// Polymarket ids are long hex hashes with no ticker — truncate; Kalshi ids end in a ticker suffix.
+function shortTicker(mid: string): string {
+  if (/^0x[0-9a-f]{6,}$/i.test(mid)) return `${mid.slice(0, 6)}…${mid.slice(-4)}`;
+  const p = mid.split("-");
+  return p[p.length - 1] || mid;
+}
+// Per-question distinguisher when there's no shared affix to strip: the "Month Day" date for
+// date-cutoff markets, else the "by/before …" tail, else the whole (de-punctuated) question.
+const OUTCOME_MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
+function outcomeLabel(q: string): string {
+  const s = (q || "").trim().replace(/\?+\s*$/, "").trim();
+  const md = s.match(new RegExp(`\\b(?:${OUTCOME_MONTHS})\\s+\\d{1,2}\\b`, "i"));
+  if (md) return md[0].replace(/\s+/g, " ");
+  const i = s.toLowerCase().search(/\b(?:by|before|after|on|above|below|under|over)\s/);
+  if (i >= 0) { const t = s.slice(i); return t.charAt(0).toUpperCase() + t.slice(1); }
+  return s;
+}
+// Concise labels for the outcomes of one event: strip the prefix + suffix shared by every
+// outcome, leaving just the distinguisher (the date for date-cutoff events, the entity for
+// categorical ones). Falls back to the per-question heuristic when there's no shared affix.
+function labelOutcomes(questions: string[]): string[] {
+  const clean = questions.map((q) => (q || "").trim().replace(/\?+\s*$/, "").trim());
+  if (clean.length <= 1) return clean.map((s) => outcomeLabel(s));
+  let pre = clean[0], suf = clean[0];
+  for (const s of clean) {
+    let i = 0; while (i < pre.length && i < s.length && pre[i] === s[i]) i++; pre = pre.slice(0, i);
+    let j = 0; while (j < suf.length && j < s.length && suf[suf.length - 1 - j] === s[s.length - 1 - j]) j++; suf = suf.slice(suf.length - j);
+  }
+  pre = pre.replace(/\S+$/, ""); // back off to a word boundary so we never cut mid-word
+  suf = suf.replace(/^\S+/, "");
+  const trim = (s: string) => s.replace(/^[\s,:;–-]+/, "").replace(/[\s,:;–-]+$/, "").trim();
+  return clean.map((s) => {
+    let r = s;
+    if (pre && r.startsWith(pre)) r = r.slice(pre.length);
+    if (suf && r.length > suf.length && r.endsWith(suf)) r = r.slice(0, r.length - suf.length);
+    r = trim(r);
+    return r || outcomeLabel(s);
+  });
+}
+
+// Team-sport / league markets that collide with a company regex on a team name — e.g. the cricket
+// side "Guyana Amazon Warriors" matching the Amazon asset. They carry unmistakable match/league
+// vocabulary that never appears in an equity market, so drop them. (Deliberately NOT keyed on a bare
+// "vs", which would also kill legitimate markets like "Apple vs Epic".)
+const SPORTS_RE = /\b(cricket|rugby|toss|innings|wickets?|scorchers|qalandars|gladiators|warriors|super\s+league|premier\s+league|champions\s+league|matchday)\b/i;
+function isSportsMatchup(title: string, question: string): boolean {
+  return SPORTS_RE.test(`${title} ${question}`);
+}
+
 async function fetchMarketsFor(a: MarketAssetDef): Promise<MarketsAsset | null> {
   let ms: OPMarket[];
   try {
@@ -472,7 +541,7 @@ async function fetchMarketsFor(a: MarketAssetDef): Promise<MarketsAsset | null> 
     return null;
   }
   const active = ms
-    .filter((m) => m.status === "active" && !m.settled_at && (a.re.test(m.question || "") || a.re.test(m.event_title || "")))
+    .filter((m) => m.status === "active" && !m.settled_at && !isSportsMatchup(m.event_title || "", m.question || "") && (a.re.test(m.question || "") || a.re.test(m.event_title || "")))
     .map((m) => ({
       market_id: m.market_id,
       question: m.question,
@@ -481,34 +550,69 @@ async function fetchMarketsFor(a: MarketAssetDef): Promise<MarketsAsset | null> 
       volume: m.volume,
       liquidity: m.liquidity,
       event_id: m.event_id,
+      event_title: m.event_title || "",
     }))
     .filter((m) => m.yes != null)
-    .sort((x, y) => (y.volume || 0) - (x.volume || 0));
-  // Collapse look-alike rows. Group by date-normalized question, then:
-  //  • group shares ONE event_id → a multi-outcome event (e.g. a Kalshi earnings-mention event whose
-  //    sub-markets all carry the same generic question) → one row tagged with its size (eventCount)
-  //    that opens the whole event (outcomes are named by ticker suffix inside the detail card).
-  //  • group spans DIFFERENT event_ids → the same market repeated across dates ("Will NVIDIA be the
-  //    largest company … on July 31 / August 31 / December 31?") → keep just the highest-volume one.
-  // `active` is volume-desc, so group[0] is the top member and grouping preserves that order.
-  const groups = new Map<string, MarketLite[]>();
+    .sort((x, y) => (y.volume || 0) - (x.volume || 0)); // volume-desc → each event's outcomes stay top-first
+
+  // Group by the true event_id so every outcome of an event lands together (a single stock's markets
+  // often belong to a handful of events; each event's outcomes may carry DIFFERENT questions, so a
+  // question-similarity grouping would leave them scattered).
+  const byEvent = new Map<string, typeof active>();
   for (const m of active) {
-    const key = normalizeQuestion(m.question);
-    if (!key) continue;
-    const g = groups.get(key);
+    const g = byEvent.get(m.event_id);
     if (g) g.push(m);
-    else groups.set(key, [m]);
+    else byEvent.set(m.event_id, [m]);
   }
-  const markets: MarketLite[] = [];
-  for (const g of groups.values()) {
-    if (g.length < 2) { markets.push(g[0]); continue; }
-    const sameEvent = g.every((m) => m.event_id === g[0].event_id);
-    if (sameEvent) markets.push({ ...g[0], yes: null, volume: g.reduce((s, m) => s + (m.volume || 0), 0), eventCount: g.length });
-    else markets.push(g[0]);
+
+  const events: MarketEvent[] = [];
+  for (const g of byEvent.values()) {
+    const volume = g.reduce((s, m) => s + (m.volume || 0), 0);
+    if (g.length === 1) {
+      const o = g[0];
+      events.push({
+        event_id: o.event_id, exchange: o.exchange, title: o.question, category: null,
+        single: true, yes: o.yes, volume: o.volume,
+        outcomes: [{ market_id: o.market_id, question: o.question, label: outcomeLabel(o.question), yes: o.yes, volume: o.volume, liquidity: o.liquidity }],
+      });
+      continue;
+    }
+    // Multi-outcome event: concise labels via shared-affix strip; if every question is identical
+    // (labels collapse to one), fall back to the market-id ticker suffix so outcomes stay named.
+    const rawLabels = labelOutcomes(g.map((m) => m.question));
+    const collapsed = new Set(rawLabels.map((l) => l.trim().toLowerCase())).size <= 1;
+    const outcomes: EventOutcomeLite[] = g
+      .map((m, i) => ({
+        market_id: m.market_id, question: m.question,
+        label: collapsed ? shortTicker(m.market_id) : rawLabels[i],
+        yes: m.yes, volume: m.volume, liquidity: m.liquidity,
+      }))
+      .sort((x, y) => (y.yes ?? -1) - (x.yes ?? -1)); // leaderboard: most-likely outcome first
+    events.push({
+      event_id: g[0].event_id, exchange: g[0].exchange, title: g[0].event_title || g[0].question, category: null,
+      single: false, yes: null, volume, outcomes,
+    });
   }
-  markets.sort((x, y) => (y.volume || 0) - (x.volume || 0)); // event rows now carry summed volume
-  if (!markets.length) return null;
-  return { ticker: a.ticker, label: a.label, count: markets.length, markets };
+
+  // Dedup the same single market repeated across resolution dates (different event_ids, same
+  // date-normalized question) → keep just the highest-volume one. Multi-outcome events pass through.
+  const seenSingle = new Map<string, MarketEvent>();
+  const deduped: MarketEvent[] = [];
+  for (const ev of events) {
+    if (!ev.single) { deduped.push(ev); continue; }
+    const key = normalizeQuestion(ev.title);
+    if (!key) { deduped.push(ev); continue; }
+    const prev = seenSingle.get(key);
+    if (!prev) { seenSingle.set(key, ev); deduped.push(ev); }
+    else if ((ev.volume || 0) > (prev.volume || 0)) {
+      deduped[deduped.indexOf(prev)] = ev;
+      seenSingle.set(key, ev);
+    }
+  }
+
+  deduped.sort((x, y) => (y.volume || 0) - (x.volume || 0));
+  if (!deduped.length) return null;
+  return { ticker: a.ticker, label: a.label, count: deduped.length, events: deduped };
 }
 
 // Per-portfolio cache keyed by the resolved ticker set (10-min TTL). A single global cache would
@@ -536,7 +640,7 @@ export async function getPortfolioMarkets(holdings?: HoldingLite[]): Promise<Mar
       source: "Oddpool",
       fetchedAt: new Date().toISOString(),
       assetCount: assets.length,
-      marketCount: assets.reduce((s, a) => s + a.count, 0),
+      marketCount: assets.reduce((s, a) => s + a.events.reduce((n, e) => n + e.outcomes.length, 0), 0),
       assets,
     };
     if (marketsCacheByKey.size > 24) marketsCacheByKey.clear(); // simple bound

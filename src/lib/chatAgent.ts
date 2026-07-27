@@ -66,8 +66,12 @@ async function runTool(name: string, input: Record<string, unknown>): Promise<st
         assets: p.assets.map((a) => ({
           ticker: a.ticker,
           label: a.label,
-          market_count: a.count,
-          top_markets: a.markets.slice(0, 6).map((m) => ({ question: m.question, yes: pct(m.yes), volume: m.volume })),
+          event_count: a.count,
+          top_events: a.events.slice(0, 6).map((e) => ({
+            event: e.title,
+            volume: e.volume,
+            outcomes: e.outcomes.map((o) => ({ outcome: o.label, question: o.question, yes: pct(o.yes), volume: o.volume })),
+          })),
         })),
       });
     }
