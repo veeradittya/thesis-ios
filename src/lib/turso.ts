@@ -93,6 +93,20 @@ export async function getLatestMonitor(userId: string): Promise<MonitorPayload> 
   return { memo, updatedAt, results };
 }
 
+// Read a user's holdings back out of Turso (the account's server-side portfolio). Lets the app
+// restore an account's portfolio on a device that has no local copy yet, so it follows the account.
+export async function getHoldings(
+  userId: string,
+): Promise<Array<{ ticker: string; name: string | null; weight: number | null; thesis: string | null }>> {
+  const rows = await query("SELECT ticker, name, weight, thesis FROM holdings WHERE user_id=? ORDER BY weight DESC", [userId]);
+  return rows.map((r) => ({
+    ticker: (r.ticker || "").toUpperCase(),
+    name: r.name,
+    weight: r.weight != null ? Number(r.weight) : null,
+    thesis: r.thesis,
+  }));
+}
+
 // Replace a user's holdings (portfolio + theses) — the source the scheduled agent reads each pass.
 export async function syncHoldings(
   userId: string,

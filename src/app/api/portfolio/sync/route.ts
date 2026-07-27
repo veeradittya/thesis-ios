@@ -1,9 +1,23 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { syncHoldings } from "@/lib/turso";
+import { syncHoldings, getHoldings } from "@/lib/turso";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// GET → the SIGNED-IN user's holdings from Turso (their account portfolio). Lets the client restore
+// the ledger on a device with no local copy, so a portfolio follows the account. Guests get 401.
+export async function GET() {
+  try {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!userId) return NextResponse.json({ error: "sign in required" }, { status: 401 });
+    const holdings = await getHoldings(userId);
+    return NextResponse.json({ holdings });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "read failed" }, { status: 502 });
+  }
+}
 
 // POST { holdings:[{ticker,name?,weight?,thesis?}] } → replaces the SIGNED-IN user's holdings in
 // Turso, which is the source the scheduled CMA agent reads each pass. The user id comes from the

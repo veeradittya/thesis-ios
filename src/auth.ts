@@ -10,8 +10,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   session: { strategy: "jwt" },
   trustHost: true, // self-hosted (localhost and any non-Vercel host)
   callbacks: {
-    // Surface a stable per-account id (the Google `sub`) on the client session so the
-    // dashboard can namespace this user's cached ledger/layout/cards.
+    // Pin the JWT subject to the STABLE Google account id (`profile.sub`). Without this, Auth.js v5
+    // (JWT strategy, no DB adapter) mints a fresh random UUID for `token.sub` on every new
+    // session/device, so the same Google account would fragment into many "users" — one per sign-in.
+    // `profile` is only present on the initial sign-in; afterwards the pinned value rides in the JWT.
+    jwt({ token, profile }) {
+      if (profile?.sub) token.sub = String(profile.sub);
+      return token;
+    },
+    // Surface that same stable per-account id on the client session so every write (holdings,
+    // activity, device, brief) and the sign-in record all key off one id.
     session({ session, token }) {
       if (token.sub && session.user) session.user.id = token.sub;
       return session;

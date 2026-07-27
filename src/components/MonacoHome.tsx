@@ -427,8 +427,27 @@ export function MonacoHome() {
             if (!cancelled && p && Array.isArray(p.holdings)) { setLedger(p); setLedgerScope(scope); return; }
           }
         } catch {}
-        // First sign-in → promote a guest-built portfolio if present, else seed the retail demo
-        // (named after the user). Edits now persist to this account; clear the guest bucket so it can't leak.
+        // No local copy on this device yet. Priority: (1) this account's server-side portfolio in
+        // Turso, so it follows the account across devices; (2) a guest-built portfolio to promote;
+        // (3) the retail demo (named after the user). Edits now persist to this account.
+        try {
+          const r = await fetch("/api/portfolio/sync");
+          if (r.ok) {
+            const j = (await r.json()) as { holdings?: Array<{ ticker: string; name: string | null; weight: number | null; thesis: string | null }> };
+            if (!cancelled && Array.isArray(j.holdings) && j.holdings.length) {
+              const holdings = j.holdings.map((h) => ({
+                ticker: h.ticker, name: h.name || h.ticker, shares: null, price: null, value: null, weight: h.weight, gain: null,
+                ...(h.thesis ? { thesis: h.thesis } : {}),
+              }));
+              setLedger({ fileName: "", portfolioName: firstName || "My Portfolio", sheetName: "", rowCount: holdings.length, totalValue: null, holdings, mappedColumns: {} });
+              setLedgerScope(scope);
+              try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {}
+              return;
+            }
+          }
+        } catch {}
+        if (cancelled) return;
+        // Nothing on the server → promote a guest-built portfolio if present, else seed the retail demo.
         const promoted = loadGuestLedger();
         const seed = promoted ?? demoPortfolio();
         if (!cancelled) { setLedger(promoted ? seed : firstName ? { ...seed, portfolioName: firstName } : seed); setLedgerScope(scope); }
