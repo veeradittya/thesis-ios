@@ -125,8 +125,8 @@ export function PullToRefresh({ onRefresh, children }: { onRefresh: () => void |
           style={refreshing ? undefined : { rotate: spinnerRotate, scale: spinnerScale }}
         />
       </motion.div>
-      {/* EVERYTHING moves as one unit on the GPU (translateY), sprung by physics. */}
-      <motion.div style={{ y, willChange: "transform" }}>{children}</motion.div>
+      {/* EVERYTHING moves as one unit (translateY), sprung by physics. */}
+      <motion.div style={{ y }}>{children}</motion.div>
     </div>
   );
 }

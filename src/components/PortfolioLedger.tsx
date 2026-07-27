@@ -209,10 +209,14 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
 
   return (
     <div className="pt-2 pb-10">
-      {/* holdings — a rounded card wrapped by an animated BorderBeam on its outline. Rows are
-          swipe-to-remove / tap-to-expand, overflow-hidden so the swipe reveal clips to the corners. */}
-      <BorderBeam size="md" colorVariant="sunset" strength={0.83}>
-      <div className="overflow-hidden rounded-2xl border border-white/[0.09]">
+      {/* holdings — a rounded card with a STATIC sunset-tinted edge glow. The animated BorderBeam that
+          used to wrap it re-rasterised a large blur/bloom every frame and dragged the whole page to
+          ~26fps; a static glow keeps the same warm look at 60fps. Rows are swipe-to-remove /
+          tap-to-expand, overflow-hidden so the swipe reveal clips to the corners. */}
+      <div
+        className="overflow-hidden rounded-2xl border border-white/[0.09]"
+        style={{ boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" }}
+      >
       <p className="px-4 pb-1.5 pt-4 text-[12px] uppercase tracking-wider text-white">Your Holdings</p>
       <ul className="flex flex-col">
         {rows.map((r, i) => {
@@ -246,7 +250,6 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
         })}
       </ul>
       </div>
-      </BorderBeam>
 
       {/* add assets — one divider, then a heading with a magnifier at the right that morphs (shared
           layoutId) into a full-width search bar right under the heading, plus the suggestions. */}
@@ -365,10 +368,10 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
                         <p className="text-[16px] font-medium leading-tight text-white">{s.symbol}</p>
                         <p className="truncate text-[13px] leading-tight text-[#8a8a8a]">{s.name} · {s.sector}</p>
                       </div>
-                      {/* BorderBeam on the Add pill outline — the same sunset beam as the holdings card (sm preset, tuned for small elements) */}
-                      <BorderBeam size="sm" colorVariant="sunset" strength={0.83} className="shrink-0">
-                        <span className="block rounded-full border border-white/10 bg-black px-3.5 py-1 text-[13px] font-medium text-white">Add</span>
-                      </BorderBeam>
+                      {/* Static Add pill — a per-item animated BorderBeam here meant 7+ continuously
+                          animating blurred borders, which dropped the page to ~24fps. Plain pill + a
+                          hover brighten keeps the look at 60fps. */}
+                      <span className="block shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-1 text-[13px] font-medium text-white transition-colors group-hover:border-white/30">Add</span>
                     </div>
                   </li>
                 ))}
@@ -420,7 +423,7 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
   return (
     <li className="relative">
       {/* Edit pill — left, revealed on a right-swipe */}
-      <motion.div style={{ opacity: editOpacity, scale: editScale, willChange: "transform, opacity" }} className="pointer-events-none absolute inset-y-0 left-0 flex origin-left items-center pl-2">
+      <motion.div style={{ opacity: editOpacity, scale: editScale }} className="pointer-events-none absolute inset-y-0 left-0 flex origin-left items-center pl-2">
         <button
           onClick={() => { snap(0); onOpen(); }}
           className={`flex h-[calc(100%-10px)] items-center justify-center rounded-full bg-emerald-600 px-5 text-[13px] font-medium text-white ${dir === 1 ? "pointer-events-auto" : "pointer-events-none"}`}
@@ -429,7 +432,7 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
         </button>
       </motion.div>
       {/* Remove pill — right, revealed on a left-swipe */}
-      <motion.div style={{ opacity: removeOpacity, scale: removeScale, willChange: "transform, opacity" }} className="pointer-events-none absolute inset-y-0 right-0 flex origin-right items-center pr-2">
+      <motion.div style={{ opacity: removeOpacity, scale: removeScale }} className="pointer-events-none absolute inset-y-0 right-0 flex origin-right items-center pr-2">
         <button
           onClick={onRemove}
           className={`flex h-[calc(100%-10px)] items-center justify-center rounded-full bg-rose-600 px-5 text-[13px] font-medium text-white ${dir === -1 ? "pointer-events-auto" : "pointer-events-none"}`}
@@ -440,7 +443,7 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
 
       <motion.div
         drag="x"
-        style={{ x, touchAction: "pan-y", willChange: "transform" }} // GPU transform; vertical scroll passes through
+        style={{ x, touchAction: "pan-y" }} // let vertical scroll pass to the page; capture only horizontal
         dragConstraints={{ left: -OFFSET, right: OFFSET }}
         dragElastic={0.06}
         dragMomentum={false} // no post-release coast — snap decides where it lands (cheaper on slow devices)
@@ -517,7 +520,6 @@ function ExpandedEditor({
           layoutId={`card-${index}-${uid}`}
           ref={ref}
           transition={CARD_MORPH}
-          style={{ willChange: "transform" }}
           className="relative w-full max-w-[400px] overflow-hidden rounded-[22px] border border-white/[0.08] bg-black shadow-[0_30px_90px_rgba(0,0,0,0.7)]"
         >
           {/* Inner content fades in only AFTER the box has finished morphing, and fades out almost
