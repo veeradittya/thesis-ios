@@ -135,6 +135,17 @@ export function MonacoHome() {
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
+
+  // Backend monitoring: log which feature/page a SIGNED-IN user opens (fire-and-forget; the server
+  // derives the user id from the session, guests are ignored). Feeds the activity timeline.
+  const logEvent = (event: string, detail?: unknown) => {
+    if (!session?.user) return;
+    fetch("/api/activity", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ event, detail }) }).catch(() => {});
+  };
+  useEffect(() => {
+    logEvent("view", mobilePage === "dashboard" ? { page: "dashboard", tab: dashTab } : { page: mobilePage });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobilePage, dashTab, session?.user]);
   // Nav-condense on scroll — the same protocol BriefReveal uses (shrink after scrolling down past a
   // small threshold, restore on scroll-up or at the very top; accumulate per-direction so a tiny nudge
   // doesn't flip it). Brief drives this from inside BriefReveal (its own scroll container); the

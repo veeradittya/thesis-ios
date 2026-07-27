@@ -115,3 +115,34 @@ export async function syncHoldings(
   await pipeline(requests);
   return n;
 }
+
+// Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
+// sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
+// new user?" signal and powers the backend monitoring of who has signed in.
+export async function recordSignIn(userId: string, email: string | null, name: string | null): Promise<void> {
+  const now = new Date().toISOString();
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO users (user_id, email, name, first_seen, last_seen, sign_in_count)
+              VALUES (?, ?, ?, ?, ?, 1)
+              ON CONFLICT(user_id) DO UPDATE SET
+                email = excluded.email,
+                name = excluded.name,
+                last_seen = excluded.last_seen,
+                sign_in_count = users.sign_in_count + 1`,
+        args: [typed(userId), typed(email), typed(name), typed(now), typed(now)],
+      },
+    },
+  ]);
+}
+
+// Append one activity event for a user (sign-in, a feature view, a portfolio edit, …). Powers the
+// backend monitoring dashboard's per-user activity timeline. Best-effort — callers ignore failures.
+export async function logActivity(userId: string | null, event: string, detail: string | null): Promise<void> {
+  const now = new Date().toISOString();
+  await pipeline([
+    { type: "execute", stmt: { sql: "INSERT INTO activity_log (user_id, ts, event, detail) VALUES (?,?,?,?)", args: [typed(userId), typed(now), typed(event), typed(detail)] } },
+  ]);
+}
