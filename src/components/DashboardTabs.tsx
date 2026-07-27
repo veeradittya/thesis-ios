@@ -41,7 +41,14 @@ export function DashboardTabs({ active, onChange }: { active: DashTab; onChange:
                 <motion.span
                   layoutId="dashTabPill"
                   className="absolute inset-0 -z-[1] rounded-full"
-                  style={{ backgroundColor: "rgba(255,255,255,0.14)", boxShadow: "0 1px 2px rgba(0,0,0,0.25)" }}
+                  style={{
+                    // Liquid-glass toggle: a frosted, saturated lens that slides between tabs — a
+                    // translucent fill + backdrop blur/saturate, a bright top sheen, and a soft lift.
+                    backgroundColor: "rgba(255,255,255,0.14)",
+                    backdropFilter: "blur(12px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(12px) saturate(180%)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.32), inset 0 -1px 1px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.32)",
+                  }}
                   transition={{ type: "spring", stiffness: 420, damping: 36 }}
                 />
               )}
