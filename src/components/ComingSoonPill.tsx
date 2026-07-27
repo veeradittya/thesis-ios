@@ -33,11 +33,11 @@ export function ComingSoonPill() {
   return (
     <div
       className="flex items-center gap-3 rounded-full py-2.5 pl-2.5 pr-5"
-      style={{ backgroundColor: "#3a3a3a66", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}
+      style={{ backgroundColor: "#2a2a2a66", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)" }}
     >
       <ThinkingOrb state="solving" size={64} speed={0.7} theme="dark" />
       <div className="flex flex-col gap-0.5">
-        <span className="shimmer-coming-soon" style={{ ...NAV_TEXT, color: "transparent" }}>Coming soon....</span>
+        <span className="shimmer-coming-soon" style={{ ...NAV_TEXT, color: "transparent", fontSize: "11px", lineHeight: 1.4 }}>Coming soon....</span>
         <span className={cn("font-normal", statusColor)} style={{ ...NAV_TEXT, fontSize: "11px", lineHeight: 1.4 }}>
           NYSE · Nasdaq
         </span>
