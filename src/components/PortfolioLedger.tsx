@@ -249,12 +249,19 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
           );
         })}
       </ul>
+      {rows.length === 0 && (
+        <p className="px-4 pb-4 pt-1 text-[13px] leading-snug text-[#8a8a8a]">
+          No holdings yet. Search or tap <span className="text-white/80">Add</span> below to build your portfolio.
+        </p>
+      )}
       </div>
 
-      {/* add assets — one divider, then a heading with a magnifier at the right that morphs (shared
-          layoutId) into a full-width search bar right under the heading, plus the suggestions. */}
-      {symbols.length > 0 && (
-        <div className="mt-3 px-1 pt-4">
+      {/* Add assets — ALWAYS visible, even with an EMPTY portfolio, so emptying your holdings can
+          never strand you: the search bar, the refresh button, and the Suggested-for-you list stay
+          put so you can always add stocks back. (recommend() returns the popularity-ranked universe
+          when there are no picks.) A heading + magnifier that morphs (shared layoutId) into a
+          full-width search bar, plus the portfolio-aware suggestions. */}
+      <div className="mt-3 px-1 pt-4">
           <div className="flex h-8 items-center justify-between">
             <p className="text-[12px] uppercase tracking-wider text-white">Suggested for you</p>
             <div className="flex items-center gap-2.5">
@@ -377,7 +384,6 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
                 ))}
           </ul>
         </div>
-      )}
 
       {/* expanded editor — the Aceternity expandable-card modal */}
       <AnimatePresence>
