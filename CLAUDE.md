@@ -52,6 +52,37 @@ vault are bound at the deployment). The agent's behaviour *is* its system prompt
 `POST /v1/deployments/{id}/run`. All CMA calls need `anthropic-beta: managed-agents-2026-04-01` +
 `ANTHROPIC_API_KEY`; the app needs `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`.
 
+## Push notifications — "your brief is ready" (mobile)  [shipped c617325]
+The native iOS app (WKWebView shell) sends a daily push when a user's Daily Brief is generated:
+title "Thesis", body "Your brief for today is ready to view.", tap → opens the Brief tab.
+
+**Server/web pieces (this repo):** `push_tokens` table + `turso.ts` helpers · `POST /api/push/register`
+(user id from session, 401 for guests) · `PushRegistration.tsx` (mounted in `Providers`) · `?view=` deep
+link in `MonacoHome.tsx` · `apns.ts` (APNs HTTP/2 + ES256 JWT) · `POST /api/push/send-brief` (secret-gated,
+fresh-brief ≤3h discovery, dedupe, prune dead tokens) · daily Vercel cron 13:30 UTC (`vercel.json`).
+
+**Contracts the native app depends on — DO NOT break:**
+- `window.__thesisRegisterPushToken(token, 'ios')` must stay defined (POSTs the APNs token to
+  `/api/push/register`; re-sent after sign-in).
+- `?view=brief|dashboard|portfolio` on load must switch the mobile tab.
+- Alert payload body must stay "Your brief for today is ready to view." with custom key `view: "brief"`.
+- `push_tokens.user_id` and the brief join must key off `session.user.id` (the stable Google `sub`), the
+  same id `holdings`/`portfolios` use.
+
+**Open follow-ups:**
+1. `getFreshBriefPushTargets` treats `portfolios.updated_at` as an ISO string (`Date.parse`). Verify with a
+   real send once APNs env is set: `POST /api/push/send-brief` with header `x-push-secret: <PUSH_SEND_SECRET>`
+   should return `targets ≥ 1` for a user with a fresh brief. If the agent writes a non-ISO or timezone-less
+   timestamp, the 3h freshness window will misbehave.
+2. Reliability: the 13:30 UTC cron fires only ~30 min after the 8 AM ET agent in winter (EST); if the agent
+   run runs long, those users are missed (cron is one-shot). Consider having the CMA agent POST
+   `/api/push/send-brief` at the end of its run, instead of / in addition to the cron.
+
+**Delivery dependency (not code):** real pushes need the PAID Apple Developer account's APNs key. Env
+(Prod+Preview): `APNS_KEY` (.p8 text), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (= the app's bundle id),
+`APNS_ENV` (**sandbox** for dev/direct-install builds, **production** for TestFlight/App Store),
+`PUSH_SEND_SECRET`, `CRON_SECRET`. Free Apple accounts cannot do push at all.
+
 ## 🚀 Deploying / hosting this site
 Self-hosted at `https://betathesis.com` on the box **anton** via a Cloudflare Tunnel + systemd.
 **If you are the Claude session on anton (or hosting this site): read and follow
