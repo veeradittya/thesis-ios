@@ -102,6 +102,14 @@ export function MonacoHome() {
   }, []);
   const homeL = useMemo(() => computeHomeLayout(vp.w || 1440, vp.h || 900), [vp.w, vp.h]);
   const isMobile = (vp.w || 1440) < MOBILE_BREAKPOINT;
+  // `isMobile` is false until the first post-mount measurement (vp starts at 0), so the very first
+  // paint would otherwise render the DESKTOP layout — flashing the nav (logo pops out of flow, the
+  // Log-in→Account button morphs) and mis-centring the loader before snapping to mobile. Gate the
+  // whole shell on `mounted`: until we've measured the viewport we show one layout-neutral loader,
+  // so the real UI only ever renders once, with the correct breakpoint. No effect on load speed —
+  // `mounted` flips on the first effect, long before the (session + ledger) fetches that gate content.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Desktop canvas panning: click-drag on empty background scrolls the view (grab
   // cursor). Card interactions are untouched — pan only starts when the pointer goes
@@ -566,6 +574,26 @@ export function MonacoHome() {
     ? ledger.holdings.slice(0, 12).map((h) => ({ ticker: h.ticker, name: h.name ?? null })).filter((a) => a.ticker)
     : [];
 
+  // First-paint / loading gate: one full-viewport, breakpoint-neutral loader (no nav, no layout
+  // branching → identical on the server and the first client render, so no hydration flash) until the
+  // viewport is measured AND the ledger is ready. Then the correct shell renders exactly once.
+  if (!mounted || !ledger) {
+    return (
+      <div className="grid min-h-dvh place-items-center bg-black">
+        {/* Same left→right shimmer as the Analyst Sentiment "Coming soon...." text, two points larger
+            (that text is 11px → this is 13px). */}
+        <span
+          className="shimmer-coming-soon"
+          role="status"
+          aria-label="Loading"
+          style={{ fontFamily: "var(--font-inter)", fontWeight: 400, fontSize: "13px", lineHeight: 1.4, letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)" }}
+        >
+          Loading....
+        </span>
+      </div>
+    );
+  }
+
   return (
     <div className={`bg-black font-sans tracking-[-0.02em] text-[#fafafa] antialiased ${isMobile ? "min-h-dvh overflow-x-clip" : "flex h-screen flex-col"}`}>
       {/* ── Floating liquid-glass nav pill — the pre-fork betathesis nav, unified across breakpoints.
@@ -726,13 +754,7 @@ export function MonacoHome() {
       {/* Mobile: no nested scroll container — the DOCUMENT scrolls (smoothest native path:
           momentum, rubber-band, URL-bar collapse). Desktop keeps the pannable scroller. */}
       <main ref={mainRef} className={isMobile ? "relative" : "no-scrollbar relative flex-1 overflow-auto"}>
-        {!ledger ? (
-          // Brief seed-load moment — land straight on the pre-seeded dashboard (the old
-          // upload-a-portfolio dropzone is gone; xlsx upload lives on in parsePortfolio).
-          <div className="flex h-full min-h-[70dvh] items-center justify-center">
-            <div className="dot-loader" role="status" aria-label="Loading portfolio" />
-          </div>
-        ) : isMobile ? (
+        {isMobile ? (
           // Mobile (<768px): full-width cards in normal flow, natively scrollable; drag,
           // resize and canvas interactions are disabled (StaticLayoutContext).
           <StaticLayoutContext.Provider value={true}>
