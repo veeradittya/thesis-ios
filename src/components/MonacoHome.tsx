@@ -612,7 +612,7 @@ export function MonacoHome() {
             style={{
               width: "min(100%, 855px)",
               height: navSmall ? 38 : 55,
-              backgroundColor: "#3a3a3a66",
+              backgroundColor: "#3a3a3a4d",
               backdropFilter: "blur(24px)",
               WebkitBackdropFilter: "blur(24px)",
             }}
