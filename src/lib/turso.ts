@@ -238,3 +238,47 @@ export async function touchUser(
     },
   ]);
 }
+
+// ── Push notifications ──────────────────────────────────────────────────────
+// One row per device token, keyed by token (a token belongs to exactly one account at a time —
+// re-registering the same token just re-points it and refreshes updated_at). user_id is the same
+// account id holdings/portfolios are keyed by.
+export async function registerPushToken(token: string, userId: string, platform: string | null): Promise<void> {
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO push_tokens (token, user_id, platform, updated_at)
+              VALUES (?, ?, ?, ?)
+              ON CONFLICT(token) DO UPDATE SET
+                user_id = excluded.user_id,
+                platform = excluded.platform,
+                updated_at = excluded.updated_at`,
+        args: [typed(token), typed(userId), typed(platform), typed(Date.now())],
+      },
+    },
+  ]);
+}
+
+export async function deletePushToken(token: string): Promise<void> {
+  await pipeline([{ type: "execute", stmt: { sql: "DELETE FROM push_tokens WHERE token=?", args: [typed(token)] } }]);
+}
+
+export interface PushTarget { userId: string; token: string; platform: string | null }
+
+// Device tokens belonging to users whose Daily Brief (portfolios.updated_at, written by the agent)
+// was refreshed within `windowMs` — i.e. everyone who got a fresh brief this run. portfolios.updated_at
+// is an ISO string, so we parse + filter in JS to avoid string-comparison edge cases.
+export async function getFreshBriefPushTargets(windowMs: number): Promise<PushTarget[]> {
+  const rows = await query(
+    `SELECT p.user_id AS user_id, p.updated_at AS brief_at, t.token AS token, t.platform AS platform
+     FROM portfolios p JOIN push_tokens t ON t.user_id = p.user_id`,
+  );
+  const cutoff = Date.now() - windowMs;
+  const out: PushTarget[] = [];
+  for (const r of rows) {
+    const at = r.brief_at ? Date.parse(r.brief_at) : NaN;
+    if (Number.isFinite(at) && at >= cutoff && r.token) out.push({ userId: r.user_id!, token: r.token, platform: r.platform });
+  }
+  return out;
+}

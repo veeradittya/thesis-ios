@@ -142,6 +142,13 @@ export function MonacoHome() {
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
+  // Deep link: tapping the daily-brief push opens the app with ?view=brief. Honour ?view= on load.
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("view");
+      if (v === "brief" || v === "dashboard" || v === "portfolio") setMobilePage(v);
+    } catch {}
+  }, []);
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   const [priceRefresh, setPriceRefresh] = useState(0); // bumped by pull-to-refresh to re-fetch live prices
