@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useMovableCard } from "@/components/ui/useMovableCard";
+import { useMovableCard, StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { ContextMenu, type MenuItem } from "@/components/ContextMenu";
 import { MacroAddPicker } from "@/components/MacroAddPicker";
 
@@ -26,13 +26,14 @@ function countdown(iso: string, now: number): string {
 
 const DISMISS_KEY = "thesis.macro.dismissed";
 const ADD_KEY = "thesis.macro.added";
+// Only surface signals releasing within this horizon (10 days).
+const HORIZON_MS = 10 * 24 * 3600 * 1000;
 
 export function MacroSignalsCard({
   x = 560,
   y = 180,
   width = 440,
   height = 520,
-  onOpenEvent,
 }: {
   x?: number;
   y?: number;
@@ -42,6 +43,16 @@ export function MacroSignalsCard({
   onOpenEvent: (ev: MacroEvent) => void;
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("macro", { x, y, w: width, h: height }, { minW: 340, minH: 260 });
+  const isStatic = useContext(StaticLayoutContext);
+  // Each event collapses to its title; its outcome distribution only shows once the title is tapped.
+  const [openEvents, setOpenEvents] = useState<Set<string>>(new Set());
+  const toggleEvent = (key: string) =>
+    setOpenEvents((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
   const [events, setEvents] = useState<MacroEvent[]>([]);
   const [dists, setDists] = useState<Record<string, MacroDist>>({});
   const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
@@ -112,7 +123,13 @@ export function MacroSignalsCard({
 
   const byKey = new Map<string, MacroEvent>();
   for (const e of [...events, ...added]) if (!byKey.has(e.eventKey)) byKey.set(e.eventKey, e);
-  const shown = [...byKey.values()].filter((e) => !dismissed.has(e.eventKey)).sort((a, b) => Date.parse(a.releaseAt) - Date.parse(b.releaseAt));
+  const shown = [...byKey.values()]
+    .filter((e) => !dismissed.has(e.eventKey))
+    .filter((e) => {
+      const t = Date.parse(e.releaseAt);
+      return !Number.isNaN(t) && t - now <= HORIZON_MS;
+    })
+    .sort((a, b) => Date.parse(a.releaseAt) - Date.parse(b.releaseAt));
 
   const menuItems: MenuItem[] = menu
     ? [{ label: "Add Signal", onClick: () => setPickerOpen(true) }, ...(menu.eventKey ? [{ label: "Close Signal", onClick: () => dismiss(menu.eventKey as string) }] : [])]
@@ -122,19 +139,26 @@ export function MacroSignalsCard({
     <div
       onPointerDown={raise}
       onContextMenu={onContextMenu}
-      style={style}
-      className="fade-in absolute flex flex-col overflow-hidden rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] font-sans tracking-[-0.01em] shadow-[0_24px_70px_rgba(0,0,0,0.55)]"
+      style={isStatic ? { boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" } : style}
+      className={cn(
+        "fade-in flex flex-col overflow-hidden font-sans tracking-[-0.01em]",
+        // Mobile: same rounded card + sunset-tinted edge glow as the portfolio's "Your Holdings" box.
+        isStatic
+          ? "relative w-full rounded-2xl border border-white/[0.09]"
+          : "absolute rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] shadow-[0_24px_70px_rgba(0,0,0,0.55)]",
+      )}
     >
       {/* header — drag handle */}
       <div {...dragHandle} className="flex shrink-0 cursor-move touch-none select-none items-center justify-between gap-3 px-5 pt-4 pb-3">
-        <h2 className="text-[16px] font-semibold text-white">Macro Signals</h2>
+        <h2 className="text-[12px] uppercase tracking-wider text-white">Macro Signals</h2>
         {status !== "live" && (
           <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{status === "connecting" ? "connecting…" : "reconnecting…"}</span>
         )}
       </div>
 
-      {/* body — event rows, each with its full outcome distribution */}
-      <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-1.5">
+      {/* body — event rows; each collapses to its title until tapped. On mobile the card grows to its
+          content (no inner scroll); on desktop the fixed-height card scrolls internally. */}
+      <div className={cn("px-5 py-1.5", !isStatic && "no-scrollbar min-h-0 flex-1 overflow-y-auto")}>
         {status === "connecting" && !shown.length && <p className="mt-10 animate-pulse text-center text-[13px] text-[#8a8a8a]">Connecting to macro feed…</p>}
         {status === "error" && !shown.length && <p className="mt-10 text-center text-[13px] text-rose-400">Macro feed unavailable.</p>}
         {status === "live" && !shown.length && (
@@ -147,31 +171,38 @@ export function MacroSignalsCard({
           const t = Date.parse(ev.releaseAt);
           const soon = !isNaN(t) && t - now < 24 * 3600_000;
           const outs = (d?.outcomes ?? []).filter((o) => o.prob != null); // skip outcomes with no quote yet
+          const evOpen = openEvents.has(ev.eventKey);
           return (
             <div key={ev.eventKey} data-event-key={ev.eventKey} className="border-t border-white/[0.06] py-2.5 first:border-t-0">
-              {/* event title (full text, wraps) + countdown */}
-              <button onClick={() => onOpenEvent(ev)} title="Open event detail · right-click to add/close" className="group flex w-full items-start justify-between gap-3 text-left">
+              {/* event title (full text, wraps) + countdown — tap to reveal the outcome distribution */}
+              <button
+                onClick={() => toggleEvent(ev.eventKey)}
+                aria-expanded={evOpen}
+                title="Tap to expand · right-click to add/close"
+                className="group flex w-full items-start justify-between gap-3 text-left"
+              >
                 <span className="min-w-0 flex-1 text-[12.5px] font-medium leading-[1.3] text-white/90 group-hover:text-white">{ev.title}</span>
                 <span className={cn("mt-px shrink-0 text-[11px] tabular-nums", cd === "now" || soon ? "text-amber-300" : "text-[#8a8a8a]")}>
                   {cd === "now" ? "now" : `in ${cd}`}
                 </span>
               </button>
 
-              {/* every priced outcome with its probability (full text, wraps) */}
-              {outs.length ? (
-                <div className="ml-1 mt-1.5 border-l border-white/[0.08] pl-2.5">
-                  {outs.map((o) => (
-                    <div key={o.outcome} className="flex w-full items-start gap-2 py-1">
-                      <span className="min-w-0 flex-1 text-[11.5px] leading-[1.3] text-white/75">{o.label}</span>
-                      <span className={cn("mt-px shrink-0 text-right text-[11.5px] tabular-nums", (o.prob ?? 0) >= 0.5 ? "text-emerald-400" : "text-white/90")}>
-                        {pct(o.prob)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-1 text-[11px] text-[#666]">Awaiting quotes…</p>
-              )}
+              {/* every priced outcome with its probability (revealed only when expanded) */}
+              {evOpen &&
+                (outs.length ? (
+                  <div className="ml-1 mt-1.5 border-l border-white/[0.08] pl-2.5">
+                    {outs.map((o) => (
+                      <div key={o.outcome} className="flex w-full items-start gap-2 py-1">
+                        <span className="min-w-0 flex-1 text-[11.5px] leading-[1.3] text-white/75">{o.label}</span>
+                        <span className={cn("mt-px shrink-0 text-right text-[11.5px] tabular-nums", (o.prob ?? 0) >= 0.5 ? "text-emerald-400" : "text-white/90")}>
+                          {pct(o.prob)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1 text-[11px] text-[#666]">Awaiting quotes…</p>
+                ))}
             </div>
           );
         })}

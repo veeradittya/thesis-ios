@@ -815,27 +815,20 @@ export function MonacoHome() {
                   by the cards it spawns, so a spawned card opens right after its origin. */}
               {dashTab === "markets" && (
                 <>
-                  <MobileSlot h={MOBILE_CARD_HEIGHTS.markets}><PortfolioMarketsCard holdings={ledger.holdings} onOpenMarket={openMarket} onOpenEvent={openEvent} /></MobileSlot>
+                  <MobileSlot auto><WhaleCard /></MobileSlot>
+
+                  <MobileSlot auto><PortfolioMarketsCard holdings={ledger.holdings} onOpenMarket={openMarket} onOpenEvent={openEvent} /></MobileSlot>
                   {openMarkets.map((m) => (
                     <MobileSlot key={m.market_id} h={560}><MarketDetailCard market={m} onClose={() => closeMarket(m.market_id)} /></MobileSlot>
                   ))}
 
                   {macroOpen && (
-                    <MobileSlot h={MOBILE_CARD_HEIGHTS.macro}><MacroSignalsCard onClose={closeMacro} onOpenEvent={openMacroEvent} /></MobileSlot>
+                    <MobileSlot auto><MacroSignalsCard onClose={closeMacro} onOpenEvent={openMacroEvent} /></MobileSlot>
                   )}
                   {openMacroEvents.map((ev) => (
                     <MobileSlot key={ev.eventKey} h={560}><MacroEventCard event={ev} onClose={() => closeMacroEvent(ev.eventKey)} /></MobileSlot>
                   ))}
 
-                  <MobileSlot h={MOBILE_CARD_HEIGHTS.whale}><WhaleCard /></MobileSlot>
-
-                  <MobileSlot h={MOBILE_CARD_HEIGHTS.chat}><OddpoolChatCard portfolio={portfolioCtx} /></MobileSlot>
-
-                  {search && (
-                    <MobileSlot h={MOBILE_CARD_HEIGHTS.search}>
-                      <SearchCard mode={search.mode} onModeChange={(m) => setSearch((prev) => (prev ? { ...prev, mode: m } : prev))} onClose={closeSearch} onOpenEvent={openEvent} onOpenMarket={openMarket} />
-                    </MobileSlot>
-                  )}
                   {openEvents.map((ev) => (
                     <MobileSlot key={ev.event_id} h={600}><EventDetailCard event={ev} onClose={() => closeEvent(ev.event_id)} onOpenMarket={openMarket} /></MobileSlot>
                   ))}
