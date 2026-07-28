@@ -38,8 +38,16 @@ function renderLinked(md: string): React.ReactNode[] {
 }
 // Strip markdown links + bold to plain text for the glance lines.
 const plain = (md: string) => md.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1").replace(/\*\*/g, "");
-// Drop a trailing run of [text](url) source links so the brief reads to its last sentence (period), no link trailer.
-const stripTrailingLinks = (md: string) => md.replace(/[\s—·]*(?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)[\s—·]*)+$/, "").trimEnd();
+// Remove source citations from brief prose — drop every [text](url), including a surrounding
+// "( … )" wrapper (e.g. "went well ([Yahoo](url)). Next" → "went well. Next") — so the brief reads
+// as clean prose with no link labels. Sources stay in the DB; only the reading view is stripped.
+const stripCitations = (md: string): string =>
+  md
+    .replace(/\s*\((?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)(?:\s*,\s*)?)+\)/g, "")
+    .replace(/\[[^\]]+\]\(https?:\/\/[^)\s]+\)/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .trim();
 
 // Risk band → colour (high risk = rose, low = emerald). Higher number = more risk.
 function riskColor(r: number | null): string {
@@ -147,7 +155,7 @@ export function ThesisMonitorCard({
         {data?.memo && (
           <div className="mb-1 w-full border-b border-white/[0.06] pb-3 pt-0.5">
             {stamp && <p className="text-[9px] uppercase tracking-wider text-[#8a8a8a]">{stamp}</p>}
-            <p className="mt-1 text-justify text-[12.5px] leading-snug text-white/90">{renderLinked(stripTrailingLinks(data.memo))}</p>
+            <p className="mt-1 text-justify text-[12.5px] leading-snug text-white/90">{renderLinked(stripCitations(data.memo))}</p>
           </div>
         )}
 
@@ -170,7 +178,7 @@ export function ThesisMonitorCard({
                     )}
                   </div>
                   <p className={cn("mt-0.5 text-[11.5px] leading-snug text-white/70", !open && "line-clamp-2")}>
-                    {open ? renderLinked(stripTrailingLinks(r.rationale)) : plain(stripTrailingLinks(r.rationale))}
+                    {open ? renderLinked(stripCitations(r.rationale)) : plain(stripCitations(r.rationale))}
                   </p>
                 </div>
                 <span className="mt-0.5 shrink-0 text-[13px] leading-none text-[#6b6b6b]">{open ? "−" : "+"}</span>
