@@ -3,6 +3,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import type React from "react";
 import { cn } from "@/lib/utils";
+import { stripCitations } from "@/lib/briefText";
 import { useMovableCard, StaticLayoutContext } from "@/components/ui/useMovableCard";
 
 // Daily Briefing — reads the scheduled agent's pre-computed output (portfolio overview memo + each
@@ -38,16 +39,6 @@ function renderLinked(md: string): React.ReactNode[] {
 }
 // Strip markdown links + bold to plain text for the glance lines.
 const plain = (md: string) => md.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1").replace(/\*\*/g, "");
-// Remove source citations from brief prose — drop every [text](url), including a surrounding
-// "( … )" wrapper (e.g. "went well ([Yahoo](url)). Next" → "went well. Next") — so the brief reads
-// as clean prose with no link labels. Sources stay in the DB; only the reading view is stripped.
-const stripCitations = (md: string): string =>
-  md
-    .replace(/\s*\((?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)(?:\s*,\s*)?)+\)/g, "")
-    .replace(/\[[^\]]+\]\(https?:\/\/[^)\s]+\)/g, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+([.,;:!?])/g, "$1")
-    .trim();
 
 // Risk band → colour (high risk = rose, low = emerald). Higher number = more risk.
 function riskColor(r: number | null): string {

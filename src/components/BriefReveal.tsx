@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { motion, useMotionValueEvent, useScroll } from "motion/react";
+import { stripCitations } from "@/lib/briefText";
 
 // EXPERIMENT (mobile Brief page only): the daily-brief text as a sticky-scroll reveal — one chunk
 // at a time (headline takeaways, then each holding). The active chunk shows at full strength; the
@@ -11,16 +12,6 @@ import { motion, useMotionValueEvent, useScroll } from "motion/react";
 
 // Drop em dashes (—) — replace with a comma so clauses still read cleanly. En dashes (date ranges) stay.
 const deDash = (s: string) => s.replace(/\s*—\s*/g, ", ");
-// Remove source citations from brief prose — drop every [text](url), including a surrounding
-// "( … )" wrapper (e.g. "went well ([Yahoo](url)). Next" → "went well. Next") — so the brief reads
-// as clean prose with no link labels. Sources stay in the DB; only the reading view is stripped.
-const stripCitations = (s: string): string =>
-  s
-    .replace(/\s*\((?:\[[^\]]+\]\(https?:\/\/[^)\s]+\)(?:\s*,\s*)?)+\)/g, "")
-    .replace(/\[[^\]]+\]\(https?:\/\/[^)\s]+\)/g, "")
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+([.,;:!?])/g, "$1")
-    .trim();
 // Render prose with inline [text](url) links (no underline — links read as plain text).
 function renderLinked(md: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
