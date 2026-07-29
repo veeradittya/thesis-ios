@@ -2,6 +2,8 @@
 // Extracted from the old /api/news route so the analysis pipeline can reuse it directly
 // (no HTTP self-call). All API keys stay server-side.
 
+import { guardianFetch, guardianKeys } from "@/lib/guardianFetch";
+
 export interface Article {
   id: string;
   ticker: string;
@@ -183,11 +185,11 @@ async function nytNews(query: string, ticker: string, key: string): Promise<Arti
     .filter((a) => a.headline && a.url && relevantTo(`${a.headline} ${a.summary}`, query));
 }
 
-async function guardianNews(query: string, ticker: string, key: string): Promise<Article[]> {
+async function guardianNews(query: string, ticker: string): Promise<Article[]> {
   const url = `https://content.guardianapis.com/search?q=${encodeURIComponent(
     query,
-  )}&order-by=newest&show-fields=trailText,thumbnail&page-size=8&api-key=${key}`;
-  const res = await fetch(url, { cache: "no-store" });
+  )}&order-by=newest&show-fields=trailText,thumbnail&page-size=8`;
+  const res = await guardianFetch(url, { cache: "no-store" });
   if (!res.ok) return [];
   const data = (await res.json()) as {
     response?: {
@@ -220,7 +222,7 @@ async function guardianNews(query: string, ticker: string, key: string): Promise
 export async function getNews(tickers: string[]): Promise<Article[]> {
   const fh = process.env.FINNHUB_API_KEY;
   const nyt = process.env.NYT_API_KEY;
-  const gu = process.env.GUARDIAN_API_KEY;
+  const gu = guardianKeys().length > 0;
   const apId = process.env.ALPACA_API_KEY_ID;
   const apSecret = process.env.ALPACA_API_SECRET_KEY;
 
@@ -231,7 +233,7 @@ export async function getNews(tickers: string[]): Promise<Article[]> {
     if (apId && apSecret) tasks.push(alpacaNews(t, apId, apSecret).catch(() => []));
     if (fh) tasks.push(finnhubNews(t, fh).catch(() => []));
     if (nyt) tasks.push(namePromise.then((name) => nytNews(name, t, nyt)).catch(() => []));
-    if (gu) tasks.push(namePromise.then((name) => guardianNews(name, t, gu)).catch(() => []));
+    if (gu) tasks.push(namePromise.then((name) => guardianNews(name, t)).catch(() => []));
   }
 
   const all = (await Promise.all(tasks)).flat();

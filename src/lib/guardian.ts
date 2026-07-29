@@ -2,13 +2,9 @@
 // Free tier is 60 req/min + 500/day, so we cache the assembled payload (no websocket
 // exists — alerts are poll-based; see NewsAlertCard which polls /api/news).
 
-const BASE = "https://content.guardianapis.com";
+import { guardianFetch } from "@/lib/guardianFetch";
 
-function apiKey(): string {
-  const k = process.env.GUARDIAN_API_KEY;
-  if (!k) throw new Error("GUARDIAN_API_KEY is not set");
-  return k;
-}
+const BASE = "https://content.guardianapis.com";
 
 export interface NewsItem {
   id: string;
@@ -82,12 +78,11 @@ export async function getNews(query: string): Promise<NewsPayload> {
     tag: "-tone/reviews", // exclude product/gadget reviews (Ring, Oura, etc.) — useless for the workflow
     "show-fields": "headline,trailText,thumbnail,byline",
     "show-elements": "image",
-    "api-key": apiKey(),
   });
 
   let res: Response;
   try {
-    res = await fetch(`${BASE}/search?${params.toString()}`, { next: { revalidate: 300 } });
+    res = await guardianFetch(`${BASE}/search?${params.toString()}`, { next: { revalidate: 300 } });
   } catch (e) {
     if (cache && cache.key === q) return cache.data; // serve stale on network error
     throw e;
@@ -172,9 +167,8 @@ export async function getArticle(id: string): Promise<Article> {
   const params = new URLSearchParams({
     "show-fields": "headline,byline,body,thumbnail",
     "show-elements": "image",
-    "api-key": apiKey(),
   });
-  const res = await fetch(`${BASE}/${id}?${params.toString()}`, { next: { revalidate: 1800 } });
+  const res = await guardianFetch(`${BASE}/${id}?${params.toString()}`, { next: { revalidate: 1800 } });
   if (!res.ok) {
     if (hit) return hit.data;
     throw new Error(`Guardian ${res.status}`);
@@ -265,7 +259,7 @@ export async function getLiveUpdates(id: string, limit = 3): Promise<LiveUpdate[
   let ok = false;
   try {
     // no-store: live blogs roll constantly and Next's Data Cache was serving a stale/empty response
-    const res = await fetch(`${BASE}/${id}?show-blocks=body:latest:15&api-key=${apiKey()}`, { cache: "no-store" });
+    const res = await guardianFetch(`${BASE}/${id}?show-blocks=body:latest:15`, { cache: "no-store" });
     if (res.ok) {
       ok = true;
       const blocksObj = (await res.json())?.response?.content?.blocks;
