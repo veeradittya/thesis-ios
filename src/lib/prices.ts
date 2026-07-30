@@ -15,6 +15,8 @@ export interface Quote {
   prevClose: number | null; // for change% reference
   change: number | null;
   percent: number | null;
+  dayLow: number | null; // today's low  (Finnhub `l`) — feeds the Day Range widget
+  dayHigh: number | null; // today's high (Finnhub `h`)
 }
 
 // Seed snapshot: current price + previous close so the card can show change% immediately.
@@ -26,8 +28,8 @@ export async function getQuotes(symbols: string[]): Promise<Record<string, Quote
       try {
         const r = await fetch(`${BASE}/quote?symbol=${encodeURIComponent(s)}&token=${key}`, { cache: "no-store" });
         if (!r.ok) return;
-        const d = (await r.json()) as { c?: number; pc?: number; d?: number; dp?: number };
-        out[s] = { symbol: s, price: d.c ?? null, prevClose: d.pc ?? null, change: d.d ?? null, percent: d.dp ?? null };
+        const d = (await r.json()) as { c?: number; pc?: number; d?: number; dp?: number; l?: number; h?: number };
+        out[s] = { symbol: s, price: d.c ?? null, prevClose: d.pc ?? null, change: d.d ?? null, percent: d.dp ?? null, dayLow: d.l ?? null, dayHigh: d.h ?? null };
       } catch {
         /* skip this symbol */
       }
