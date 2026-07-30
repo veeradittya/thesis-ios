@@ -93,6 +93,24 @@ export async function getLatestMonitor(userId: string): Promise<MonitorPayload> 
   return { memo, updatedAt, results };
 }
 
+// Per-ticker analyst-sentiment brief (a succinct plain-language read on the analyst consensus,
+// written by the daily agent into assets.analyst_brief). Feeds the Analyst Sentiment cards.
+export async function getAnalystBriefs(tickers: string[]): Promise<Record<string, string>> {
+  const syms = [...new Set(tickers.map((t) => (t || "").trim().toUpperCase()).filter(Boolean))];
+  if (!syms.length) return {};
+  const placeholders = syms.map(() => "?").join(",");
+  const rows = await query(
+    `SELECT ticker, analyst_brief FROM assets WHERE ticker IN (${placeholders}) AND analyst_brief IS NOT NULL`,
+    syms,
+  );
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const t = (r.ticker || "").toUpperCase();
+    if (r.analyst_brief) out[t] = r.analyst_brief;
+  }
+  return out;
+}
+
 // Resolve the STABLE Google-sub user id for an email — the canonical row whose user_id is all
 // digits (the Google `sub`). Used to heal legacy sessions whose token.sub is a pre-fix random UUID.
 // Returns null if no Google-sub row exists yet for that email.

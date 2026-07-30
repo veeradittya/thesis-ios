@@ -5,7 +5,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
-import { ANALYST_SUMMARIES } from "@/lib/analystSummaries";
+import { ComingSoonPill } from "@/components/ComingSoonPill";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
@@ -65,14 +65,14 @@ function cleanCompany(name: string): string {
 const fmtPrice = (v: number | null) => (v == null ? "—" : v.toFixed(2));
 const fmtPct = (v: number | null) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
 
-// Analyst-recommendation tag: translucent liquid-glass tint by label (bullish = emerald, hold = amber,
-// bearish = rose). Paired with backdrop-blur + a light ring/sheen on the pill for the glass look.
+// Analyst-recommendation pill: fully transparent glass (backdrop-blur + white glass-edge ring, no tint,
+// no sheen) with coloured text by sentiment (bullish = emerald, hold = amber, bearish = rose).
 const recColor = (label: string) =>
   label === "Strong Buy" || label === "Buy"
-    ? "bg-emerald-500/70"
+    ? "text-emerald-300"
     : label === "Hold"
-      ? "bg-amber-500/70"
-      : "bg-rose-500/70"; // Sell / Strong Sell
+      ? "text-amber-300"
+      : "text-rose-300"; // Sell / Strong Sell
 
 // The five Finnhub rating buckets, most-bullish first — rows of the expanded ratings breakdown.
 const RATING_ROWS: Array<[string, "strongBuy" | "buy" | "hold" | "sell" | "strongSell"]> = [
@@ -314,6 +314,23 @@ export function MonacoHome() {
         const r = await fetch(`/api/metrics?symbols=${encodeURIComponent(holdingSymbols)}`);
         const j = await r.json();
         if (!cancelled) setMetrics(j.metrics || {});
+      } catch {
+        /* keep whatever we have */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dashTab, holdingSymbols]);
+
+  // Per-stock analyst-sentiment brief (agent-written, from Turso via /api/analyst-brief).
+  const [analystBriefs, setAnalystBriefs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (dashTab !== "extra" || !holdingSymbols) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/analyst-brief?symbols=${encodeURIComponent(holdingSymbols)}`);
+        const j = await r.json();
+        if (!cancelled) setAnalystBriefs(j.briefs || {});
       } catch {
         /* keep whatever we have */
       }
@@ -1009,6 +1026,7 @@ export function MonacoHome() {
                   portfolio's "Your Holdings" box). Card body is a shell for the sentiment content. */}
               {dashTab === "extra" && (
                 <>
+                  <ComingSoonPill />
                   {ledger.holdings.map((h, i) => {
                     const sym = (h.ticker || "").trim().toUpperCase();
                     const q = sentimentQuotes[sym];
@@ -1025,7 +1043,7 @@ export function MonacoHome() {
                         key={`${h.ticker}-${i}`}
                         onClick={rec ? () => toggleRatings(sym) : undefined}
                         className={`relative w-full overflow-hidden rounded-2xl border border-white/[0.09] px-4 py-4 ${rec ? "cursor-pointer" : ""}`}
-                        style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" }}
+                        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -1039,15 +1057,15 @@ export function MonacoHome() {
                             </p>
                           </div>
                         </div>
-                        {ANALYST_SUMMARIES[sym] && (
-                          <p className="mt-2.5 text-[13px] leading-snug text-white/75">{ANALYST_SUMMARIES[sym]}</p>
+                        {analystBriefs[sym] && (
+                          <p className="mt-2.5 text-[13px] leading-snug text-white/75">{analystBriefs[sym]}</p>
                         )}
                         {rec && (
                           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                             <span className="text-[13px] text-[#8a8a8a]">Average Analyst Recommendation:</span>
                             <span
-                              style={{ ...navText, fontSize: "11px", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
-                              className={`inline-flex items-center rounded-md px-2 py-0.5 ring-1 ring-white/15 backdrop-blur-md ${recColor(rec.label)}`}
+                              style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
+                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium ring-1 ring-white/15 backdrop-blur-md ${recColor(rec.label)}`}
                             >
                               {rec.label}
                             </span>
