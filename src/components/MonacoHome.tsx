@@ -5,6 +5,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
+import { ANALYST_SUMMARIES } from "@/lib/analystSummaries";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
@@ -1024,11 +1025,12 @@ export function MonacoHome() {
                         key={`${h.ticker}-${i}`}
                         onClick={rec ? () => toggleRatings(sym) : undefined}
                         className={`relative w-full overflow-hidden rounded-2xl border border-white/[0.09] px-4 py-4 ${rec ? "cursor-pointer" : ""}`}
-                        style={{ boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" }}
+                        style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" }}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-[16px] font-medium leading-tight text-white">{h.ticker || "New holding"}</p>
+                            {h.name && <p className="mt-0.5 truncate text-[13px] leading-tight text-[#8a8a8a]">{h.name}</p>}
                           </div>
                           <div className="shrink-0 text-right">
                             <p className="text-[16px] leading-tight tabular-nums text-white">{fmtPrice(q?.price ?? null)}</p>
@@ -1037,6 +1039,9 @@ export function MonacoHome() {
                             </p>
                           </div>
                         </div>
+                        {ANALYST_SUMMARIES[sym] && (
+                          <p className="mt-2.5 text-[13px] leading-snug text-white/75">{ANALYST_SUMMARIES[sym]}</p>
+                        )}
                         {rec && (
                           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                             <span className="text-[13px] text-[#8a8a8a]">Average Analyst Recommendation:</span>
