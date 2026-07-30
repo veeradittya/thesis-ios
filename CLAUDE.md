@@ -38,8 +38,10 @@ Python + web_search/web_fetch), with a persistent memory store and a vault holdi
    memory — not a mechanical roll-up of the per-stock verdicts, and not a second agent.
 
 **Turso schema:** `holdings(user_id,ticker,name,weight,thesis)` (the portfolios — written by the app),
-`assets(ticker PK, verdict, risk, rationale, signals, researched_at)` (shared per-stock research — written by
-the agent), `portfolios(user_id PK, memo, updated_at)` (per-portfolio overview — written by the agent).
+`assets(ticker PK, verdict, risk, rationale, signals, analyst_brief, researched_at)` (shared per-stock research —
+written by the agent; `analyst_brief` is the succinct plain-language analyst-sentiment line the Analyst Sentiment
+card shows, read via `/api/analyst-brief`), `portfolios(user_id PK, memo, updated_at)` (per-portfolio overview —
+written by the agent).
 
 **Data flow:** ledger edit → `/api/portfolio/sync` → `holdings`; the agent reads `holdings` and writes
 `assets` + `portfolios`; card → `/api/monitor?user=<scope>` → `getLatestMonitor()` (joins a portfolio's
