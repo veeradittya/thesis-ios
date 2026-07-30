@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
+import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
@@ -28,7 +29,6 @@ import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
 import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
 import { PullToRefresh } from "@/components/PullToRefresh";
-import { ComingSoonPill } from "@/components/ComingSoonPill";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -60,6 +60,97 @@ function cleanCompany(name: string): string {
 
 // In-flow wrapper for a card in the mobile stack: reserves the card's readable height
 // while the card itself (absolute + 100%×100% under StaticLayoutContext) fills it.
+// Price / day-change formatters — identical to the holdings ledger.
+const fmtPrice = (v: number | null) => (v == null ? "—" : v.toFixed(2));
+const fmtPct = (v: number | null) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
+
+// Analyst-recommendation tag: translucent liquid-glass tint by label (bullish = emerald, hold = amber,
+// bearish = rose). Paired with backdrop-blur + a light ring/sheen on the pill for the glass look.
+const recColor = (label: string) =>
+  label === "Strong Buy" || label === "Buy"
+    ? "bg-emerald-500/70"
+    : label === "Hold"
+      ? "bg-amber-500/70"
+      : "bg-rose-500/70"; // Sell / Strong Sell
+
+// The five Finnhub rating buckets, most-bullish first — rows of the expanded ratings breakdown.
+const RATING_ROWS: Array<[string, "strongBuy" | "buy" | "hold" | "sell" | "strongSell"]> = [
+  ["Strong Buy", "strongBuy"],
+  ["Buy", "buy"],
+  ["Hold", "hold"],
+  ["Sell", "sell"],
+  ["Strong Sell", "strongSell"],
+];
+
+// low ── current-dot ── high range slider (Day Range / 52-Week Range on the Analyst Sentiment cards).
+// The current price is labelled top-right (with a dot glyph matching the marker); Low/High are labelled below.
+function RangeSlider({ label, low, cur, high }: { label: string; low: number; cur: number; high: number }) {
+  const pct = high > low ? Math.min(100, Math.max(0, ((cur - low) / (high - low)) * 100)) : 50;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{label}</span>
+        <span className="text-[11.5px] font-medium tabular-nums text-white">{cur.toFixed(2)}</span>
+      </div>
+      <div className="relative mt-2 h-4 rounded-[3px] bg-white/[0.08]">
+        <div
+          className="absolute top-1/2 h-2.5 w-2.5 rounded-full bg-white"
+          style={{ left: `${pct}%`, transform: "translate(-50%, -50%)", boxShadow: "0 0 0 2px rgba(0,0,0,0.45)" }}
+        />
+      </div>
+      <div className="mt-1.5 flex items-baseline justify-between text-[10px]">
+        <span className="text-[#8a8a8a]">Low <span className="tabular-nums text-white/85">{low.toFixed(2)}</span></span>
+        <span className="text-[#8a8a8a]">High <span className="tabular-nums text-white/85">{high.toFixed(2)}</span></span>
+      </div>
+    </div>
+  );
+}
+
+// Combined range slider: one 52-week track with TODAY's range highlighted as an inner band and the
+// current-price dot. Today's range sits inside the year (often near an edge) with no room for inline
+// labels, so an arrow points down at that band; the ends are the 52-week low/high, the dot is "now".
+function CombinedRangeSlider({ week52Low, week52High, cur, dayLow, dayHigh }: { week52Low: number; week52High: number; cur: number; dayLow?: number | null; dayHigh?: number | null }) {
+  const span = week52High - week52Low || 1;
+  const pos = (v: number) => Math.min(100, Math.max(0, ((v - week52Low) / span) * 100));
+  const curPos = pos(cur);
+  const hasDay = dayLow != null && dayHigh != null && dayHigh > dayLow;
+  const dLow = hasDay ? pos(dayLow!) : 0;
+  const dHigh = hasDay ? pos(dayHigh!) : 0;
+  const dayMid = (dLow + dHigh) / 2;
+  return (
+    <div>
+      <span className="text-[13px] text-[#8a8a8a]">Price Range</span>
+      {/* Day-range callout — an arrow points down at today's (tight) amber band inside the 52-week track. */}
+      {hasDay && (
+        <div className="relative mt-3 h-4 text-[9.5px] tabular-nums text-amber-300/90">
+          <span
+            className="absolute bottom-1.5 whitespace-nowrap"
+            style={{ left: `${dayMid}%`, transform: `translateX(${dayMid > 66 ? "-90%" : dayMid < 34 ? "-10%" : "-50%"})` }}
+          >
+            Day {dayLow!.toFixed(2)}–{dayHigh!.toFixed(2)}
+          </span>
+          <span className="absolute bottom-0 -translate-x-1/2 leading-none text-amber-400/70" style={{ left: `${dayMid}%` }}>
+            ▾
+          </span>
+        </div>
+      )}
+      <div className={`relative ${hasDay ? "" : "mt-2"} h-4 rounded-[3px] bg-white/[0.08]`}>
+        {hasDay && (
+          <div className="absolute top-0 h-full rounded-[2px] bg-amber-400/45" style={{ left: `${dLow}%`, width: `${Math.max(2, dHigh - dLow)}%` }} />
+        )}
+        <div
+          className="absolute top-0 h-full w-[2px] rounded-full bg-white"
+          style={{ left: `${curPos}%`, transform: "translateX(-50%)", boxShadow: "0 0 0 1px rgba(0,0,0,0.5)" }}
+        />
+      </div>
+      <div className="mt-1.5 flex items-baseline justify-between text-[10px]">
+        <span className="text-[#8a8a8a]">52W Low <span className="tabular-nums text-white/85">{week52Low.toFixed(2)}</span></span>
+        <span className="text-[#8a8a8a]">52W High <span className="tabular-nums text-white/85">{week52High.toFixed(2)}</span></span>
+      </div>
+    </div>
+  );
+}
+
 function MobileSlot({ h, auto, children }: { h?: number; auto?: boolean; children: React.ReactNode }) {
   // `auto` → no fixed height; the wrapper grows to the (in-flow) card's content (used by the
   // Daily Briefing so all holdings fit without an inner scroll).
@@ -150,6 +241,84 @@ export function MonacoHome() {
     } catch {}
   }, []);
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
+
+  // Live quotes for the Analyst Sentiment cards — SAME pipeline as the holdings ledger (/api/quote +
+  // the shared price cache). Seeded from cache and fetched once when that tab is open.
+  type SentimentQuote = { price: number | null; percent: number | null; dayLow?: number | null; dayHigh?: number | null };
+  const [sentimentQuotes, setSentimentQuotes] = useState<Record<string, SentimentQuote>>({});
+  const holdingSymbols = useMemo(
+    () => (ledger?.holdings ?? []).map((h) => h.ticker.trim().toUpperCase()).filter(Boolean).join(","),
+    [ledger],
+  );
+  useEffect(() => {
+    if (dashTab !== "extra" || !holdingSymbols) return;
+    const active = holdingSymbols.split(",");
+    const cached = readQuoteCache(active);
+    setSentimentQuotes((prev) => {
+      const next = { ...prev };
+      for (const [s, c] of Object.entries(cached)) if (next[s] == null) next[s] = { price: c.price, percent: c.percent };
+      return next;
+    });
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/quote?symbols=${encodeURIComponent(holdingSymbols)}`);
+        const j = await r.json();
+        const q = (j.quotes || {}) as Record<string, SentimentQuote>;
+        if (cancelled) return;
+        setSentimentQuotes((prev) => ({ ...prev, ...q }));
+        writeQuoteCache(q);
+      } catch {
+        /* keep whatever prices we already have */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dashTab, holdingSymbols]);
+
+  // Average analyst recommendation per holding (Finnhub via /api/recommendation) — server-cached, so
+  // this is cheap on repeat tab visits. Uncovered names (e.g. crypto) are simply absent from the map.
+  type RecCounts = { strongBuy: number; buy: number; hold: number; sell: number; strongSell: number };
+  const [recommendations, setRecommendations] = useState<Record<string, { label: string; score: number; analysts: number; period: string; counts: RecCounts }>>({});
+  // Which Analyst Sentiment cards have their ratings breakdown expanded.
+  const [openRatings, setOpenRatings] = useState<Set<string>>(new Set());
+  const toggleRatings = (sym: string) =>
+    setOpenRatings((prev) => {
+      const n = new Set(prev);
+      if (n.has(sym)) n.delete(sym);
+      else n.add(sym);
+      return n;
+    });
+  useEffect(() => {
+    if (dashTab !== "extra" || !holdingSymbols) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/recommendation?symbols=${encodeURIComponent(holdingSymbols)}`);
+        const j = await r.json();
+        if (!cancelled) setRecommendations(j.recommendations || {});
+      } catch {
+        /* keep whatever we have */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dashTab, holdingSymbols]);
+
+  // 52-week range per holding (Finnhub via /api/metrics) — feeds the 52-Week Range slider.
+  const [metrics, setMetrics] = useState<Record<string, { week52High: number | null; week52Low: number | null }>>({});
+  useEffect(() => {
+    if (dashTab !== "extra" || !holdingSymbols) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/metrics?symbols=${encodeURIComponent(holdingSymbols)}`);
+        const j = await r.json();
+        if (!cancelled) setMetrics(j.metrics || {});
+      } catch {
+        /* keep whatever we have */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dashTab, holdingSymbols]);
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   const [priceRefresh, setPriceRefresh] = useState(0); // bumped by pull-to-refresh to re-fetch live prices
   const priceRefreshResolve = useRef<(() => void) | null>(null); // resolves when the triggered fetch lands
@@ -835,12 +1004,90 @@ export function MonacoHome() {
                 </>
               )}
 
-              {/* Analyst Sentiment — placeholder: a thinking-orb pill with the market-hours readout,
-                  centered on the page. */}
+              {/* Analyst Sentiment — one bordered card per holding (same sunset-glow border as the
+                  portfolio's "Your Holdings" box). Card body is a shell for the sentiment content. */}
               {dashTab === "extra" && (
-                <div className="flex min-h-[calc(100dvh-280px)] items-center justify-center">
-                  <ComingSoonPill />
-                </div>
+                <>
+                  {ledger.holdings.map((h, i) => {
+                    const sym = (h.ticker || "").trim().toUpperCase();
+                    const q = sentimentQuotes[sym];
+                    const up = (q?.percent ?? 0) >= 0;
+                    const rec = recommendations[sym];
+                    const isOpen = openRatings.has(sym);
+                    const maxCount = rec?.counts ? Math.max(1, rec.counts.strongBuy, rec.counts.buy, rec.counts.hold, rec.counts.sell, rec.counts.strongSell) : 1;
+                    const met = metrics[sym];
+                    const cur = q?.price ?? null;
+                    const dayReady = q?.dayLow != null && q?.dayHigh != null && cur != null && q.dayHigh > q.dayLow;
+                    const wk52Ready = met?.week52Low != null && met?.week52High != null && cur != null && met.week52High > met.week52Low;
+                    return (
+                      <div
+                        key={`${h.ticker}-${i}`}
+                        onClick={rec ? () => toggleRatings(sym) : undefined}
+                        className={`relative w-full overflow-hidden rounded-2xl border border-white/[0.09] px-4 py-4 ${rec ? "cursor-pointer" : ""}`}
+                        style={{ boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" }}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[16px] font-medium leading-tight text-white">{h.ticker || "New holding"}</p>
+                          </div>
+                          <div className="shrink-0 text-right">
+                            <p className="text-[16px] leading-tight tabular-nums text-white">{fmtPrice(q?.price ?? null)}</p>
+                            <p className={`mt-0.5 text-[13px] leading-tight tabular-nums ${q?.percent == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400"}`}>
+                              {fmtPct(q?.percent ?? null)}
+                            </p>
+                          </div>
+                        </div>
+                        {rec && (
+                          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[13px] text-[#8a8a8a]">Average Analyst Recommendation:</span>
+                            <span
+                              style={{ ...navText, fontSize: "11px", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
+                              className={`inline-flex items-center rounded-md px-2 py-0.5 ring-1 ring-white/15 backdrop-blur-md ${recColor(rec.label)}`}
+                            >
+                              {rec.label}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Current-month analyst ratings breakdown (Finnhub-native buckets) — tap to reveal. */}
+                        {rec?.counts && isOpen && (
+                          <div className="mt-3.5 flex flex-col gap-1 border-t border-white/[0.08] pt-3.5">
+                            {RATING_ROWS.map(([label, keyName]) => {
+                              const c = rec.counts[keyName];
+                              return (
+                                <div key={keyName} className="flex items-center gap-2.5">
+                                  <span className="w-[76px] shrink-0 text-[11px] text-white/70">{label}</span>
+                                  <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-[3px] bg-white/[0.05]">
+                                    <div
+                                      className="h-full rounded-[3px]"
+                                      style={{ width: `${(c / maxCount) * 100}%`, background: "#b7bac2" }}
+                                    />
+                                  </div>
+                                  <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-white/70">{c}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Combined 52-week + day range slider (Finnhub-sourced). Falls back to a day-only
+                            slider when the 52-week range isn't available. */}
+                        {isOpen && (dayReady || wk52Ready) && (
+                          <div className="mt-3.5 border-t border-white/[0.08] pt-3.5">
+                            {wk52Ready ? (
+                              <CombinedRangeSlider week52Low={met!.week52Low!} week52High={met!.week52High!} cur={cur!} dayLow={q?.dayLow} dayHigh={q?.dayHigh} />
+                            ) : (
+                              <RangeSlider label="Day Range" low={q!.dayLow!} cur={cur!} high={q!.dayHigh!} />
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {ledger.holdings.length === 0 && (
+                    <p className="px-1 pt-6 text-center text-[13px] text-[#8a8a8a]">Add holdings on the Portfolio tab to see analyst sentiment.</p>
+                  )}
+                </>
               )}
               </div>
             )}
