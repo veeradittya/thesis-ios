@@ -17,7 +17,6 @@ const LABELS: Array<[string, string]> = [
   ["/api/monitor", "brief"],
   ["/api/quote", "quotes"],
   ["/api/prices/history", "price history"],
-  ["/api/signals", "signal search"],
   ["/api/macro/event/volumes", "macro volumes"],
   ["/api/macro/catalog", "macro catalog"],
   ["/api/macro", "macro"],

@@ -1,10 +1,16 @@
-// Server-side "takeaway protocol": one concise, factual, ≤16-word takeaway per Guardian
-// feed item via Claude Haiku (Dartmouth gateway, tool-calling). Non-live items summarize the
-// article body; rolling live blogs summarize their last SUBSTANTIVE update (not the headline).
+// Server-side "takeaway protocol": one concise, factual, <=16-word takeaway per Guardian feed item via
+// Claude Haiku (the native Anthropic API, ANTHROPIC_API_KEY). Non-live items summarize the article body;
+// rolling live blogs summarize their last SUBSTANTIVE update (not the headline).
+//
+// Caching is two-tier and the main cost control: an in-memory L1 (per instance, 30-min TTL) over a shared
+// Turso L2 (persistent, keyed by article id, no expiry). A takeaway for a fixed article is immutable, so
+// each article is sent to the LLM at most ONCE across all users and all serverless instances.
 
+import Anthropic from "@anthropic-ai/sdk";
 import { getArticle, getLiveUpdates, isLiveBlog, type NewsItem, type LiveUpdate } from "@/lib/guardian";
+import { getNewsTakeaways, putNewsTakeaways } from "@/lib/turso";
 
-const MODEL = "anthropic.claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-4-5"; // the cheapest Anthropic model — plenty for a one-line summary
 
 const SYSTEM = [
   "You write concise news takeaways.",
@@ -26,32 +32,28 @@ const LIVE_SYSTEM = [
   "- Strictly factual: use ONLY facts in the update text. Do not invent, exaggerate, editorialize, or hedge. No meta phrases ('this update…', 'the live blog…').",
 ].join("\n");
 
-const TOOLS = [
-  {
-    type: "function",
-    function: {
-      name: "emit_takeaways",
-      description: "Return one concise takeaway for every item, in order.",
-      parameters: {
-        type: "object",
-        properties: {
-          items: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string", description: "the id exactly as given, e.g. a1" },
-                takeaway: { type: "string", description: "headline-style, <=16 words, ends with a period" },
-              },
-              required: ["id", "takeaway"],
-            },
+// Anthropic-native forced tool: the response's tool_use block carries `input` already parsed as an object.
+const TAKEAWAY_TOOL: Anthropic.Tool = {
+  name: "emit_takeaways",
+  description: "Return one concise takeaway for every item, in order.",
+  input_schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "the id exactly as given, e.g. a1" },
+            takeaway: { type: "string", description: "headline-style, <=16 words, ends with a period" },
           },
+          required: ["id", "takeaway"],
         },
-        required: ["items"],
       },
     },
+    required: ["items"],
   },
-];
+};
 
 interface Prepared {
   k: string;
@@ -59,82 +61,118 @@ interface Prepared {
   block: string;
 }
 
-// One Haiku batch → map of real id → takeaway. Returns {} on any failure.
+// One Haiku batch → map of real id → takeaway. Returns {} on any failure (card falls back to headlines).
 async function runBatch(prepared: Prepared[], system: string): Promise<Record<string, string>> {
-  const base = process.env.DARTMOUTH_GATEWAY_BASE;
-  const token = process.env.DARTMOUTH_API_KEY;
   const map: Record<string, string> = {};
-  if (!base || !token || !prepared.length) return map;
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || !prepared.length) return map;
 
   const user = `Articles:\n\n${prepared.map((p) => p.block).join("\n\n---\n\n")}`;
   try {
-    const res = await fetch(base + "/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [{ role: "system", content: system }, { role: "user", content: user }],
-        tools: TOOLS,
-        tool_choice: { type: "function", function: { name: "emit_takeaways" } },
-        temperature: 0.2,
-        max_tokens: 2500,
-      }),
+    const client = new Anthropic({ apiKey });
+    const res = await client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      temperature: 0.2,
+      system,
+      tools: [TAKEAWAY_TOOL],
+      tool_choice: { type: "tool", name: "emit_takeaways" },
+      messages: [{ role: "user", content: user }],
     });
-    const args = (await res.json())?.choices?.[0]?.message?.tool_calls?.[0]?.function?.arguments;
-    if (args) {
+    const tool = res.content.find((b) => b.type === "tool_use");
+    const items = tool?.type === "tool_use" ? (tool.input as { items?: Array<{ id?: string; takeaway?: string }> }).items : undefined;
+    if (items) {
       const byKey = new Map<string, string>();
-      for (const e of JSON.parse(args).items || []) if (e.id && e.takeaway) byKey.set(e.id, e.takeaway);
+      for (const e of items) if (e.id && e.takeaway) byKey.set(e.id, e.takeaway);
       for (const p of prepared) {
         const tw = byKey.get(p.k);
         if (tw) map[p.id] = tw;
       }
     }
   } catch {
-    /* gateway error → empty map; card falls back to headlines */
+    /* API error → empty map; card falls back to headlines */
   }
   return map;
 }
 
-// ─── Non-live articles → takeaway from the article body. Memoized PER article-id (a fixed
-// takeaway per article), so a churning feed only sends genuinely-NEW articles to the LLM — never
-// the whole set again. This is the main token-cost control. ──
+// ─── Non-live articles → takeaway from the article body. L1 (in-memory, 30-min TTL) over L2 (shared Turso,
+// no expiry). Only genuinely-new articles — missing from both caches — are sent to the LLM. ──
 const takeCache = new Map<string, { at: number; tk: string }>();
 const TTL = 30 * 60 * 1000;
 
 export async function getTakeaways(items: NewsItem[]): Promise<Record<string, string>> {
   const targets = items.filter((it) => !isLiveBlog(it.title));
+  if (!targets.length) return {};
   const now = Date.now();
-  for (const [id, v] of takeCache) if (now - v.at > TTL) takeCache.delete(id); // evict stale
-
-  // Only the articles we haven't already summarized go to the LLM.
-  const misses = targets.filter((it) => !takeCache.has(it.id));
-  if (misses.length) {
-    const prepared = await Promise.all(
-      misses.map(async (it, i) => {
-        let content = it.trailText || "";
-        try {
-          const a = await getArticle(it.id);
-          if (a.paragraphs?.length) content = a.paragraphs.join("\n\n");
-        } catch {
-          /* fall back to trailText */
-        }
-        if (!content) content = it.trailText || it.title;
-        const k = `a${i + 1}`;
-        return { k, id: it.id, block: `id: ${k}\nHeadline: ${it.title}\nFull text: ${content.slice(0, 3500)}` };
-      }),
-    );
-    const map = await runBatch(prepared, SYSTEM);
-    for (const it of misses) if (map[it.id]) takeCache.set(it.id, { at: now, tk: map[it.id] });
-  }
+  for (const [id, v] of takeCache) if (now - v.at > TTL) takeCache.delete(id); // evict stale L1
 
   const out: Record<string, string> = {};
-  for (const it of targets) { const v = takeCache.get(it.id); if (v) out[it.id] = v.tk; }
+
+  // L1: in-memory
+  const l1Misses: NewsItem[] = [];
+  for (const it of targets) {
+    const v = takeCache.get(it.id);
+    if (v) out[it.id] = v.tk;
+    else l1Misses.push(it);
+  }
+  if (!l1Misses.length) return out;
+
+  // L2: shared Turso cache (persistent). Best-effort — a lookup failure just falls through to the LLM.
+  let l2: Record<string, string> = {};
+  try {
+    l2 = await getNewsTakeaways(l1Misses.map((it) => it.id));
+  } catch {
+    /* ignore */
+  }
+  const llmMisses: NewsItem[] = [];
+  for (const it of l1Misses) {
+    const tw = l2[it.id];
+    if (tw) {
+      out[it.id] = tw;
+      takeCache.set(it.id, { at: now, tk: tw });
+    } else {
+      llmMisses.push(it);
+    }
+  }
+  if (!llmMisses.length) return out;
+
+  // LLM: only the articles missing from both caches. Write results back to L1 + L2.
+  const prepared = await Promise.all(
+    llmMisses.map(async (it, i) => {
+      let content = it.trailText || "";
+      try {
+        const a = await getArticle(it.id);
+        if (a.paragraphs?.length) content = a.paragraphs.join("\n\n");
+      } catch {
+        /* fall back to trailText */
+      }
+      if (!content) content = it.trailText || it.title;
+      const k = `a${i + 1}`;
+      return { k, id: it.id, block: `id: ${k}\nHeadline: ${it.title}\nFull text: ${content.slice(0, 3500)}` };
+    }),
+  );
+  const fresh = await runBatch(prepared, SYSTEM);
+  const toPersist: Array<{ id: string; takeaway: string }> = [];
+  for (const it of llmMisses) {
+    const tw = fresh[it.id];
+    if (tw) {
+      out[it.id] = tw;
+      takeCache.set(it.id, { at: now, tk: tw });
+      toPersist.push({ id: it.id, takeaway: tw });
+    }
+  }
+  if (toPersist.length) {
+    try {
+      await putNewsTakeaways(toPersist);
+    } catch {
+      /* best-effort persistence */
+    }
+  }
   return out;
 }
 
-// ─── Rolling live blogs → each exploded into its latest few updates, each Haiku-summarized.
-// Memoized PER update block id (an update's text is fixed once posted), so a blog posting a new
-// update only sends THAT update to the LLM — not all of the blog's recent updates every time.
+// ─── Rolling live blogs → each exploded into its latest few updates, each Haiku-summarized. Memoized per
+// update block id (an update's text is fixed once posted), same L1 + Turso L2 tiers as above. ──
 const liveTakeCache = new Map<string, { at: number; tk: string }>();
 const LIVE_TTL = 30 * 60 * 1000;
 const UPDATES_PER_BLOG = 3;
@@ -160,25 +198,54 @@ export async function getLiveItems(live: NewsItem[]): Promise<NewsItem[]> {
   if (!flat.length) return [];
 
   const now = Date.now();
-  for (const [id, v] of liveTakeCache) if (now - v.at > LIVE_TTL) liveTakeCache.delete(id); // evict stale
+  for (const [id, v] of liveTakeCache) if (now - v.at > LIVE_TTL) liveTakeCache.delete(id); // evict stale L1
+  const keyOf = (x: { blog: NewsItem; u: LiveUpdate }) => `${x.blog.id}#${x.u.blockId}`;
 
-  // Only updates we haven't summarized yet go to the LLM (memoized per update block id).
-  const misses = flat.filter((x) => !liveTakeCache.has(`${x.blog.id}#${x.u.blockId}`));
-  if (misses.length) {
-    const prepared = misses.map((x, i) => ({
-      k: `a${i + 1}`,
-      id: `${x.blog.id}#${x.u.blockId}`,
-      block: `id: a${i + 1}\nLive blog: ${x.blog.title}\nUpdate: ${x.u.text.slice(0, 2500)}`,
-    }));
-    const map = await runBatch(prepared, LIVE_SYSTEM);
-    for (const x of misses) {
-      const id = `${x.blog.id}#${x.u.blockId}`;
-      if (map[id]) liveTakeCache.set(id, { at: now, tk: map[id] });
+  // L1: in-memory
+  const l1Misses = flat.filter((x) => !liveTakeCache.has(keyOf(x)));
+  if (l1Misses.length) {
+    // L2: shared Turso cache
+    let l2: Record<string, string> = {};
+    try {
+      l2 = await getNewsTakeaways(l1Misses.map(keyOf));
+    } catch {
+      /* ignore */
+    }
+    const llmMisses: Array<{ blog: NewsItem; u: LiveUpdate }> = [];
+    for (const x of l1Misses) {
+      const tw = l2[keyOf(x)];
+      if (tw) liveTakeCache.set(keyOf(x), { at: now, tk: tw });
+      else llmMisses.push(x);
+    }
+    // LLM: updates missing from both caches. Write back to L1 + L2.
+    if (llmMisses.length) {
+      const prepared = llmMisses.map((x, i) => ({
+        k: `a${i + 1}`,
+        id: keyOf(x),
+        block: `id: a${i + 1}\nLive blog: ${x.blog.title}\nUpdate: ${x.u.text.slice(0, 2500)}`,
+      }));
+      const fresh = await runBatch(prepared, LIVE_SYSTEM);
+      const toPersist: Array<{ id: string; takeaway: string }> = [];
+      for (const x of llmMisses) {
+        const id = keyOf(x);
+        const tw = fresh[id];
+        if (tw) {
+          liveTakeCache.set(id, { at: now, tk: tw });
+          toPersist.push({ id, takeaway: tw });
+        }
+      }
+      if (toPersist.length) {
+        try {
+          await putNewsTakeaways(toPersist);
+        } catch {
+          /* best-effort */
+        }
+      }
     }
   }
 
   return flat.map((x) => {
-    const id = `${x.blog.id}#${x.u.blockId}`; // composite: parent blog id + update block id (unique per update)
+    const id = keyOf(x); // composite: parent blog id + update block id (unique per update)
     return {
       id,
       title: x.blog.title, // keeps the "– live" suffix so the card shows the LIVE chip

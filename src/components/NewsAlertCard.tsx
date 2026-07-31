@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useMovableCard } from "@/components/ui/useMovableCard";
-import { ContextMenu } from "@/components/ContextMenu";
 import type { NewsItem } from "@/lib/guardian";
 
 const POLL_MS = 120_000; // server caches 5 min; this just keeps the card fresh
@@ -61,8 +60,9 @@ function Thumb({ src, alt }: { src: string | null; alt: string | null }) {
 export function NewsAlertCard({
   query,
   onOpenArticle,
-  onFindSignals,
   embedded = false,
+  refreshSignal = 0,
+  onRefreshed,
   x = 1080,
   y = 826,
   width = 430,
@@ -70,15 +70,15 @@ export function NewsAlertCard({
 }: {
   query?: string;
   onOpenArticle: (item: NewsItem) => void;
-  onFindSignals: (item: NewsItem) => void;
   embedded?: boolean; // phone: render the feed straight on the page background (no card shell)
+  refreshSignal?: number; // bumped by pull-to-refresh to force a re-fetch
+  onRefreshed?: () => void; // called when a pull-to-refresh fetch settles (springs the gesture back)
   x?: number;
   y?: number;
   width?: number;
   height?: number;
 }) {
   const { style, dragHandle, resizeHandle, raise } = useMovableCard("news", { x, y, w: width, h: height }, { minW: 320, minH: 280 });
-  const [menu, setMenu] = useState<{ vx: number; vy: number; item: NewsItem } | null>(null);
   // Seed from the localStorage cache → instant paint, spinner only on a true first-ever visit.
   const [items, setItems] = useState<NewsItem[]>(() => readNewsCache(query) ?? []);
   const [seen, setSeen] = useState<Set<string>>(() => new Set((readNewsCache(query) ?? []).map((i) => i.id)));
@@ -126,6 +126,27 @@ export function NewsAlertCard({
     };
   }, [query]);
 
+  // Pull-to-refresh: re-fetch on a signal bump, then notify so the gesture springs back when done.
+  useEffect(() => {
+    if (!refreshSignal) return; // 0 = initial mount, nothing to refresh
+    let cancelled = false;
+    fetch(`/api/guardian?q=${encodeURIComponent(query || "")}&takeaways=1`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancelled) return;
+        const next: NewsItem[] = j.items || [];
+        if (!j.error && next.length) {
+          setItems(next);
+          setErr(null);
+          writeNewsCache(query, next);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) onRefreshed?.(); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
+
   // The headline feed — shared by the card and the embedded (phone) layouts.
   const feed = (
     <>
@@ -146,7 +167,6 @@ export function NewsAlertCard({
               exit={{ opacity: 0, height: 0 }}
               transition={{ height: { duration: 0.42, ease: [0.22, 1, 0.36, 1] }, opacity: { duration: 0.45, ease: "easeOut" } }}
               onClick={() => onOpenArticle(i)}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ vx: e.clientX, vy: e.clientY, item: i }); }}
               className="group flex w-full gap-2 overflow-hidden border-t border-white/[0.06] py-3 text-left first:border-t-0"
             >
               <Thumb src={i.image} alt={i.imageAlt} />
@@ -168,22 +188,12 @@ export function NewsAlertCard({
     </>
   );
 
-  const menuEl = menu && (
-    <ContextMenu
-      x={menu.vx}
-      y={menu.vy}
-      items={[{ label: "Find Signals", onClick: () => { onFindSignals(menu.item); setMenu(null); } }]}
-      onClose={() => setMenu(null)}
-    />
-  );
-
   // Phone: no card chrome — the feed flows straight on the page background (document scroll).
   if (embedded) {
     return (
       <div className="fade-in font-sans tracking-[-0.01em]">
         <h2 className="px-1 pb-0.5 text-[16px] font-semibold text-white">Portfolio Headlines</h2>
         <div className="px-1">{feed}</div>
-        {menuEl}
       </div>
     );
   }
@@ -203,8 +213,6 @@ export function NewsAlertCard({
 
       {/* body — feed */}
       <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-5 py-2">{feed}</div>
-
-      {menuEl}
 
       {/* resize handle */}
       <div

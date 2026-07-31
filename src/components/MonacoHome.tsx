@@ -25,7 +25,6 @@ import { MacroEventCard } from "@/components/MacroEventCard";
 import { ContextMenu, type MenuItem } from "@/components/ContextMenu";
 import { EventDetailCard, type EventStub } from "@/components/EventDetailCard";
 import { SearchCard, type SearchMode } from "@/components/SearchCard";
-import { SignalSearchCard } from "@/components/SignalSearchCard";
 import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
@@ -365,6 +364,18 @@ export function MonacoHome() {
       }),
     [],
   );
+  // Same pull-to-refresh contract for the Portfolio Headlines (News) tab — bump the signal, resolve when
+  // NewsAlertCard reports its re-fetch landed. Stable identity so PullToRefresh's effect isn't torn down.
+  const [newsRefresh, setNewsRefresh] = useState(0);
+  const newsRefreshResolve = useRef<(() => void) | null>(null);
+  const refreshNews = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        newsRefreshResolve.current = resolve;
+        setNewsRefresh((n) => n + 1);
+      }),
+    [],
+  );
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
 
   // Backend monitoring: log which feature/page a SIGNED-IN user opens + timed retrievals. Events are
@@ -607,19 +618,6 @@ export function MonacoHome() {
   const openSearch = (mode: SearchMode) => setSearch({ mode }); // (re-)open from the right-click menu
   const closeSearch = () => setSearch(null);
 
-  // Signal-search cards — right-click a headline → "Find Signals". One card per article.
-  const [openSignals, setOpenSignals] = useState<Array<NewsItem & { _x: number; _y: number }>>([]);
-  function openSignalSearch(item: NewsItem) {
-    setOpenSignals((prev) => {
-      if (prev.some((p) => p.id === item.id)) return prev;
-      const spot = findEmptySpot(440, 500);
-      return [...prev, { ...item, _x: spot.x, _y: spot.y }];
-    });
-  }
-  function closeSignal(id: string) {
-    setOpenSignals((prev) => prev.filter((p) => p.id !== id));
-  }
-
   // Persist the Search card and the event/market cards it spawns, so they survive reloads
   // until manually closed. (Per-card position/size is already persisted by useMovableCard;
   // here we persist *which* cards are open.) Restore on mount, then write on change — the
@@ -636,8 +634,6 @@ export function MonacoHome() {
       const s = localStorage.getItem("thesis.search.open");
       if (s === "closed") setSearch(null); // pre-seeded, but the user dismissed it
       else if (s === "events" || s === "markets") setSearch({ mode: s });
-      const g = JSON.parse(localStorage.getItem("thesis.signals.open") || "[]");
-      if (Array.isArray(g) && g.length) setOpenSignals(g);
     } catch {}
     setHydrated(true);
   }, []);
@@ -647,7 +643,6 @@ export function MonacoHome() {
   isMobileRef.current = isMobile;
   useEffect(() => { if (hydrated && !isMobileRef.current) try { localStorage.setItem("thesis.markets.open", JSON.stringify(openMarkets)); } catch {} }, [openMarkets, hydrated]);
   useEffect(() => { if (hydrated && !isMobileRef.current) try { localStorage.setItem("thesis.events.open", JSON.stringify(openEvents)); } catch {} }, [openEvents, hydrated]);
-  useEffect(() => { if (hydrated && !isMobileRef.current) try { localStorage.setItem("thesis.signals.open", JSON.stringify(openSignals)); } catch {} }, [openSignals, hydrated]);
   useEffect(() => { if (hydrated && !isMobileRef.current) try { localStorage.setItem("thesis.macro.open", macroOpen ? "1" : "0"); } catch {} }, [macroOpen, hydrated]);
   useEffect(() => { if (hydrated && !isMobileRef.current) try { localStorage.setItem("thesis.search.open", search ? search.mode : "closed"); } catch {} }, [search, hydrated]);
 
@@ -1112,13 +1107,16 @@ export function MonacoHome() {
               {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
                   opens the article as a blurred full-screen overlay (rendered below), not inline. */}
               {dashTab === "news" && (
-                <>
-                  <NewsAlertCard embedded query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} />
-                  {openSignals.map((a) => (
-                    <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
-                  ))}
+                <PullToRefresh onRefresh={refreshNews}>
+                  <NewsAlertCard
+                    embedded
+                    query={newsQuery}
+                    onOpenArticle={openArticle}
+                    refreshSignal={newsRefresh}
+                    onRefreshed={() => { newsRefreshResolve.current?.(); newsRefreshResolve.current = null; }}
+                  />
                   <MobileDisclaimer />
-                </>
+                </PullToRefresh>
               )}
 
               {/* Prediction Markets — markets · macro · whale · chat · search, each immediately followed
@@ -1276,7 +1274,7 @@ export function MonacoHome() {
             <WhaleCard x={homeL.whale.x} y={homeL.whale.y} width={homeL.whale.w} height={homeL.whale.h} />
             <OddpoolChatCard portfolio={portfolioCtx} x={homeL.chat.x} y={homeL.chat.y} width={homeL.chat.w} height={homeL.chat.h} />
             <MarketHoursCard x={homeL.hours.x} y={homeL.hours.y} width={homeL.hours.w} height={homeL.hours.h} />
-            <NewsAlertCard query={newsQuery} onOpenArticle={openArticle} onFindSignals={openSignalSearch} x={homeL.news.x} y={homeL.news.y} width={homeL.news.w} height={homeL.news.h} />
+            <NewsAlertCard query={newsQuery} onOpenArticle={openArticle} x={homeL.news.x} y={homeL.news.y} width={homeL.news.w} height={homeL.news.h} />
             <LivePricesCard assets={priceAssets} onOpenChart={openChart} x={homeL.prices.x} y={homeL.prices.y} width={homeL.prices.w} height={homeL.prices.h} />
             {openMarkets.map((m) => (
               <MarketDetailCard key={m.market_id} market={m} x={m._x} y={m._y} onClose={() => closeMarket(m.market_id)} />
@@ -1307,9 +1305,6 @@ export function MonacoHome() {
                 onOpenMarket={openMarket}
               />
             )}
-            {openSignals.map((a) => (
-              <SignalSearchCard key={a.id} article={a} x={a._x} y={a._y} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} />
-            ))}
           </div>
         )}
       </main>

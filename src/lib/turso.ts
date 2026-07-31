@@ -293,6 +293,32 @@ export async function deleteAccount(userId: string): Promise<void> {
   await pipeline(tables.map((t) => ({ type: "execute", stmt: { sql: `DELETE FROM ${t} WHERE user_id=?`, args: [typed(uid)] } })));
 }
 
+// Shared, persistent cache for per-article news takeaways (see src/lib/newsTakeaways.ts). Keyed by the
+// article/update id; a takeaway for a fixed article is immutable, so entries never expire. Written once
+// by whichever request first summarizes an article and reused across every user + serverless instance,
+// so each article is sent to the LLM at most once regardless of how many people load the feed.
+export async function getNewsTakeaways(ids: string[]): Promise<Record<string, string>> {
+  const uniq = [...new Set(ids.filter(Boolean))];
+  if (!uniq.length) return {};
+  const placeholders = uniq.map(() => "?").join(",");
+  const rows = await query(`SELECT id, takeaway FROM news_takeaways WHERE id IN (${placeholders})`, uniq);
+  const out: Record<string, string> = {};
+  for (const r of rows) if (r.id && r.takeaway) out[r.id] = r.takeaway;
+  return out;
+}
+
+export async function putNewsTakeaways(entries: Array<{ id: string; takeaway: string }>): Promise<void> {
+  const rows = entries.filter((e) => e.id && e.takeaway);
+  if (!rows.length) return;
+  const now = new Date().toISOString();
+  await pipeline(
+    rows.map((e) => ({
+      type: "execute",
+      stmt: { sql: "INSERT OR REPLACE INTO news_takeaways (id, takeaway, created_at) VALUES (?,?,?)", args: [typed(e.id), typed(e.takeaway), typed(now)] },
+    })),
+  );
+}
+
 export interface PushTarget { userId: string; token: string; platform: string | null }
 
 // Device tokens belonging to users whose Daily Brief (portfolios.updated_at, written by the agent)
