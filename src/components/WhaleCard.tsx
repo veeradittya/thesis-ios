@@ -130,10 +130,10 @@ export function WhaleCard({ x = 40, y = 680, width = 1010, height = 300 }: { x?:
   return (
     <div
       onPointerDown={raise}
-      style={isStatic ? { boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" } : style}
+      style={isStatic ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" } : style}
       className={cn(
         "fade-in flex flex-col overflow-hidden font-sans tracking-[-0.01em]",
-        // Mobile: same rounded card + sunset-tinted edge glow as the other dashboard cards.
+        // Mobile: same rounded card + liquid-glass sheen as the Analyst Sentiment cards.
         isStatic
           ? "relative w-full rounded-2xl border border-white/[0.09]"
           : "absolute rounded-[20px] border border-white/[0.06] bg-[#0e0e0e] shadow-[0_24px_70px_rgba(0,0,0,0.55)]",

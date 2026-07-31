@@ -100,7 +100,7 @@ export function PortfolioMarketsCard({
   return (
     <div
       onPointerDown={raise}
-      style={isStatic ? { boxShadow: "0 0 0 1px rgba(251,146,60,0.08), 0 12px 48px -16px rgba(244,120,80,0.22)" } : style}
+      style={isStatic ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" } : style}
       className={cn(
         "fade-in flex flex-col font-sans tracking-[-0.01em]",
         // Mobile: same rounded card + sunset-tinted edge glow as the portfolio's "Your Holdings" box.
