@@ -5,7 +5,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
-import { ComingSoonPill } from "@/components/ComingSoonPill";
+import { MarketHoursPill } from "@/components/MarketHoursPill";
 import { SignInButtons } from "@/components/SignInButtons";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
@@ -175,6 +175,17 @@ if (typeof window !== "undefined") {
       localStorage.setItem("thesis.preseed.v1", "1");
     }
   } catch {}
+}
+
+// Compact financial disclaimer shown under informational content (brief / markets / sentiment) so the
+// app never reads as transactional. The fuller version lives on the Account → About panel.
+function MobileDisclaimer() {
+  return (
+    <p className="px-5 pb-3 pt-1 text-[11px] leading-snug text-[#6b6b6b]">
+      For informational purposes only. Not investment, financial, or trading advice. Thesis is not a
+      broker-dealer and executes no trades or bets. Do your own research.
+    </p>
+  );
 }
 
 export function MonacoHome() {
@@ -427,6 +438,27 @@ export function MonacoHome() {
   const authed = !!userId; // authenticated client → editable, per-account, persisted ledger
   const scope = authed ? `u.${userId}` : null; // localStorage namespace for this account
   const firstName = (session?.user?.name || "").trim().split(/\s+/)[0] || null; // names the seeded ledger for a signed-in user
+
+  // In-app account deletion (App Store Guideline 5.1.1(v)): confirm → POST /api/account/delete → signOut.
+  const [acctDeleteConfirm, setAcctDeleteConfirm] = useState(false);
+  const [acctDeleting, setAcctDeleting] = useState(false);
+  const [acctDeleted, setAcctDeleted] = useState(false);
+  const [acctDeleteError, setAcctDeleteError] = useState(false);
+  const handleDeleteAccount = async () => {
+    setAcctDeleting(true);
+    setAcctDeleteError(false);
+    try {
+      const res = await fetch("/api/account/delete", { method: "POST", credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      // Drop this account's locally cached ledger so it can't be re-synced after deletion.
+      try { if (scope) localStorage.removeItem(acctLedgerKey(scope)); } catch {}
+      setAcctDeleted(true);
+      await signOut({ redirect: false }); // clear the session in place; the deleted screen stays shown
+    } catch {
+      setAcctDeleting(false);
+      setAcctDeleteError(true);
+    }
+  };
   // The Turso scope for the scheduled agent + Daily Briefing. Signed-in users read/write their OWN
   // portfolio (keyed by their account id); signed-out visitors see the shared public demo ("pilot").
   // The /api routes re-derive this from the session server-side — this value only drives which brief
@@ -441,14 +473,6 @@ export function MonacoHome() {
     if (ledger) ensureMarkets(ledger.holdings);
   }, [ledger]);
 
-  // Ephemeral "coming soon" pill for not-yet-built nav items.
-  const [toast, setToast] = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = (msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 1900);
-  };
   const [openMarkets, setOpenMarkets] = useState<Array<OpenMarket & { _x: number; _y: number }>>([]);
 
   // Find a free spot on the canvas for a new card (so it lands in empty space).
@@ -776,8 +800,7 @@ export function MonacoHome() {
   if (!mounted || !ledger) {
     return (
       <div className="grid min-h-dvh place-items-center bg-black">
-        {/* Same left→right shimmer as the Analyst Sentiment "Coming soon...." text, two points larger
-            (that text is 11px → this is 13px). */}
+        {/* Left→right shimmer loading indicator (13px). */}
         <span
           className="shimmer-coming-soon"
           role="status"
@@ -823,16 +846,13 @@ export function MonacoHome() {
               >
                 Dashboard
               </button>
-              {/* desktop (≥768): Portfolio (scroll home) / Plays */}
+              {/* desktop (≥768): Portfolio scrolls home */}
               <button
                 onClick={() => mainRef.current?.scrollTo({ left: 0, top: 0, behavior: "smooth" })}
                 style={navText}
                 className="hidden capitalize opacity-80 transition-opacity hover:opacity-100 md:block"
               >
                 Portfolio
-              </button>
-              <button onClick={() => showToast("Plays — coming soon")} style={navText} className="hidden capitalize opacity-80 transition-opacity hover:opacity-100 md:block">
-                Plays
               </button>
             </nav>
 
@@ -850,7 +870,7 @@ export function MonacoHome() {
               </button>
             </div>
 
-            {/* right actions — mobile Portfolio tab (right of the logo), Dispatch (hidden on phones), then Log in / account */}
+            {/* right actions — mobile Portfolio tab (right of the logo), then Log in / account */}
             <div className="flex flex-1 shrink-0 items-center justify-evenly md:justify-end md:gap-8 md:pr-[25px]">
               <button
                 onClick={() => { setMobilePage("portfolio"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
@@ -858,9 +878,6 @@ export function MonacoHome() {
                 className={`capitalize transition-opacity md:hidden ${mobilePage === "portfolio" ? "opacity-100" : "opacity-50 hover:opacity-100"}`}
               >
                 Portfolio
-              </button>
-              <button onClick={() => showToast("Dispatch — coming soon")} style={navText} className="hidden opacity-80 transition-opacity hover:opacity-100 sm:block">
-                Dispatch
               </button>
               {session?.user ? (
                 isMobile ? (
@@ -942,14 +959,6 @@ export function MonacoHome() {
         </div>
       </header>
 
-      {/* ephemeral "coming soon" pill for not-yet-built nav items */}
-      {toast && (
-        <div className="pointer-events-none fixed inset-x-0 top-[92px] z-[60] flex justify-center">
-          <div className="fade-in rounded-full border border-white/10 bg-[#1a1a1a]/90 px-4 py-2 text-[12.5px] text-white/90 shadow-[0_12px_40px_rgba(0,0,0,0.5)] backdrop-blur">
-            {toast}
-          </div>
-        </div>
-      )}
 
       {/* Desktop sign-in chooser — both options (Apple + Google) with equal prominence, opened from
           the "Log in" nav button. (Phone hosts the same chooser on its Account page.) */}
@@ -991,16 +1000,82 @@ export function MonacoHome() {
               // back to <ThesisMonitorCard/> to revert.
               <BriefReveal user={monitorUser} onCondense={setNavCondensed} />
             ) : mobilePage === "account" ? (
-              session?.user ? (
-                // "Account" tab, signed in — the only thing here is the logout option.
-                <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-5 px-6">
-                  {session.user.email && <p className="text-[13px] text-[#8a8a8a]">Signed in as {session.user.email}</p>}
+              acctDeleted ? (
+                // Post-deletion confirmation — the session is being cleared underneath this.
+                <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-3 px-6 text-center">
+                  <p className="text-[20px] font-medium text-white">Account deleted</p>
+                  <p className="max-w-[300px] text-[14px] leading-snug text-[#8a8a8a]">
+                    Your account and all of your data have been permanently removed.
+                  </p>
+                </div>
+              ) : session?.user ? (
+                // "Account" tab, signed in — identity, log out, disclaimer + privacy, and account deletion.
+                <div className="mx-auto flex w-full max-w-[440px] flex-col gap-5 px-6 pt-[calc(env(safe-area-inset-top)+32px)] pb-28">
+                  <div>
+                    <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">Account</p>
+                    <p className="mt-1.5 text-[15px] text-white">{session.user.name ?? "Signed in"}</p>
+                    {session.user.email && <p className="text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
+                  </div>
+
                   <button
                     onClick={() => signOut()}
-                    className="rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
+                    className="self-start rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
                   >
                     Log out
                   </button>
+
+                  {/* About + disclaimer + privacy policy */}
+                  <div className="mt-2 rounded-2xl border border-white/[0.09] p-4">
+                    <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">About</p>
+                    <p className="mt-2 text-[13px] leading-snug text-[#8a8a8a]">
+                      Thesis is for informational purposes only and is not investment, financial, or trading
+                      advice. Prediction-market data is informational; Thesis is not a broker-dealer and does not
+                      execute trades or bets. Do your own research.
+                    </p>
+                    <a
+                      href="/privacy"
+                      className="mt-3 inline-block text-[13px] text-white/80 underline underline-offset-2 transition-colors hover:text-white"
+                    >
+                      Privacy Policy
+                    </a>
+                  </div>
+
+                  {/* In-app account deletion (App Store Guideline 5.1.1(v)) */}
+                  <div className="mt-1">
+                    {!acctDeleteConfirm ? (
+                      <button
+                        onClick={() => { setAcctDeleteConfirm(true); setAcctDeleteError(false); }}
+                        className="text-[14px] font-medium text-rose-400 transition-colors hover:text-rose-300"
+                      >
+                        Delete Account
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl border border-rose-500/30 bg-rose-500/[0.06] p-4">
+                        <p className="text-[13.5px] leading-snug text-white">
+                          This permanently deletes your account and all your data. This can&apos;t be undone.
+                        </p>
+                        {acctDeleteError && (
+                          <p className="mt-2 text-[12.5px] text-rose-300">Couldn&apos;t delete your account. Please try again.</p>
+                        )}
+                        <div className="mt-3 flex items-center gap-3">
+                          <button
+                            onClick={handleDeleteAccount}
+                            disabled={acctDeleting}
+                            className="rounded-full bg-rose-500 px-5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-rose-400 disabled:opacity-60"
+                          >
+                            {acctDeleting ? "Deleting…" : "Delete everything"}
+                          </button>
+                          <button
+                            onClick={() => setAcctDeleteConfirm(false)}
+                            disabled={acctDeleting}
+                            className="text-[13.5px] text-[#8a8a8a] transition-colors hover:text-white disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 // "Account" tab, signed out — the sign-in page: both options (Apple + Google), equal
@@ -1042,6 +1117,7 @@ export function MonacoHome() {
                   {openSignals.map((a) => (
                     <MobileSlot key={a.id} h={520}><SignalSearchCard article={a} onClose={() => closeSignal(a.id)} onOpenEvent={openEvent} onOpenMarket={openMarket} /></MobileSlot>
                   ))}
+                  <MobileDisclaimer />
                 </>
               )}
 
@@ -1066,6 +1142,7 @@ export function MonacoHome() {
                   {openEvents.map((ev) => (
                     <MobileSlot key={ev.event_id} h={600}><EventDetailCard event={ev} onClose={() => closeEvent(ev.event_id)} onOpenMarket={openMarket} /></MobileSlot>
                   ))}
+                  <MobileDisclaimer />
                 </>
               )}
 
@@ -1073,7 +1150,7 @@ export function MonacoHome() {
                   portfolio's "Your Holdings" box). Card body is a shell for the sentiment content. */}
               {dashTab === "extra" && (
                 <>
-                  <ComingSoonPill />
+                  <MarketHoursPill />
                   {ledger.holdings.map((h, i) => {
                     const sym = (h.ticker || "").trim().toUpperCase();
                     const q = sentimentQuotes[sym];
@@ -1157,6 +1234,7 @@ export function MonacoHome() {
                   {ledger.holdings.length === 0 && (
                     <p className="px-1 pt-6 text-center text-[13px] text-[#8a8a8a]">Add holdings on the Portfolio tab to see analyst sentiment.</p>
                   )}
+                  <MobileDisclaimer />
                 </>
               )}
               </div>

@@ -282,6 +282,17 @@ export async function deletePushToken(token: string): Promise<void> {
   await pipeline([{ type: "execute", stmt: { sql: "DELETE FROM push_tokens WHERE token=?", args: [typed(token)] } }]);
 }
 
+// Full account deletion (App Store Guideline 5.1.1(v) — in-app account + data removal). Removes EVERY
+// row this user owns across all user-scoped tables in ONE pipeline (atomic-ish, single round trip).
+// Never touches the shared `assets` table (per-ticker research reused across all portfolios).
+// Irreversible. Table names are constants (not user input); user_id is bound.
+export async function deleteAccount(userId: string): Promise<void> {
+  const uid = (userId || "").trim();
+  if (!uid) throw new Error("deleteAccount: missing userId");
+  const tables = ["holdings", "portfolios", "push_tokens", "users", "activity_log"];
+  await pipeline(tables.map((t) => ({ type: "execute", stmt: { sql: `DELETE FROM ${t} WHERE user_id=?`, args: [typed(uid)] } })));
+}
+
 export interface PushTarget { userId: string; token: string; platform: string | null }
 
 // Device tokens belonging to users whose Daily Brief (portfolios.updated_at, written by the agent)

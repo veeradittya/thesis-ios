@@ -167,6 +167,9 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
               {s.node}
             </motion.section>
           ))}
+          <p className="pt-2 text-[11px] leading-snug text-[#6b6b6b]">
+            For informational purposes only. Not investment, financial, or trading advice. Do your own research.
+          </p>
           <div className="h-[26vh]" />
         </div>
       )}

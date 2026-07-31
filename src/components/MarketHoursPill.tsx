@@ -15,11 +15,10 @@ const NAV_TEXT: React.CSSProperties = {
   letterSpacing: "clamp(-0.32px, calc(-0.103px - 0.009vw), -0.24px)",
 };
 
-// Analyst Sentiment placeholder — a thinking orb + shimmering "Coming Soon" inside a liquid-glass
-// pill, carrying the market-hours readout that used to live in the standalone clock card:
-// the two markets (NYSE · Nasdaq), the live ET clock, and the open/close countdown.
-// Owns its own 1s tick so only this pill re-renders each second.
-export function ComingSoonPill() {
+// Live market-hours readout shown atop the Analyst Sentiment cards: a thinking orb beside the two
+// markets (NYSE · Nasdaq), the live ET clock, and the open/close countdown. Owns its own 1s tick so
+// only this pill re-renders each second.
+export function MarketHoursPill() {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
