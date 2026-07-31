@@ -114,8 +114,8 @@ export default function PrivacyPolicy() {
         <Section title="Contact">
           <p className="mt-2">
             Questions or deletion requests:{" "}
-            <a href="mailto:privacy@betathesis.com" className="text-zinc-100 underline underline-offset-2">
-              privacy@betathesis.com
+            <a href="mailto:info@betathesis.com" className="text-zinc-100 underline underline-offset-2">
+              info@betathesis.com
             </a>
             .
           </p>
