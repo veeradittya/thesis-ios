@@ -1058,7 +1058,7 @@ export function MonacoHome() {
                           </div>
                         </div>
                         {analystBriefs[sym] && (
-                          <p className="mt-2.5 text-[13px] leading-snug text-white/75">{analystBriefs[sym]}</p>
+                          <p className="mt-2.5 text-[15px] leading-snug text-white/75">{analystBriefs[sym]}</p>
                         )}
                         {rec && (
                           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
