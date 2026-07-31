@@ -1,6 +1,8 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Apple from "next-auth/providers/apple";
+import Credentials from "next-auth/providers/credentials";
+import { verifyGoogleIdToken } from "@/lib/googleVerify";
 import { recordSignIn, logActivity, getCanonicalUserId } from "@/lib/turso";
 
 // Auth.js (NextAuth v5) — Google + Apple sign-in with stateless JWT sessions (no DB yet).
@@ -12,7 +14,26 @@ import { recordSignIn, logActivity, getCanonicalUserId } from "@/lib/turso";
 // is unset the provider is registered but only errors when its button is used; Google is unaffected.
 // See .env.local / .env.production.example for the values + provider setup steps.
 export const { handlers, signIn, signOut, auth } = NextAuth({
-  providers: [Google, Apple],
+  providers: [
+    Google,
+    Apple,
+    // Native iOS Google Sign-In (smooth one-tap account picker). The native shell runs GIDSignIn,
+    // gets a Google ID token, and hands it to the WKWebView, which calls signIn("google-native",
+    // { idToken }). We verify the token server-side and mint OUR session cookie in the webview. The
+    // returned `id` is the Google `sub` — identical to web Google sign-in, so it is ONE identity.
+    // Invoked only via the token bridge; not shown as a button.
+    Credentials({
+      id: "google-native",
+      name: "Google (native iOS)",
+      credentials: { idToken: { label: "Google ID token", type: "text" } },
+      async authorize(creds) {
+        const idToken = typeof creds?.idToken === "string" ? creds.idToken : "";
+        const id = await verifyGoogleIdToken(idToken);
+        if (!id?.sub) return null;
+        return { id: id.sub, email: id.email ?? undefined, name: id.name ?? undefined, image: id.picture ?? undefined };
+      },
+    }),
+  ],
   session: { strategy: "jwt" },
   trustHost: true, // self-hosted (localhost and any non-Vercel host)
   callbacks: {
@@ -20,9 +41,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // (JWT strategy, no DB adapter) mints a fresh random UUID for `token.sub` on every new
     // session/device, so the same Google account would fragment into many "users" — one per sign-in.
     // `profile` is only present on the initial sign-in; afterwards the pinned value rides in the JWT.
-    async jwt({ token, profile }) {
+    async jwt({ token, profile, user }) {
       if (profile?.sub) {
         token.sub = String(profile.sub);
+        return token;
+      }
+      // Native Google (the `google-native` Credentials provider) has no OAuth `profile`, but `user.id`
+      // is the verified Google `sub` — pin it so this session is the SAME identity as web Google
+      // sign-in. (`user` is only present on the initial sign-in call.)
+      if (user?.id) {
+        token.sub = String(user.id);
         return token;
       }
       // Self-heal LEGACY sessions minted before this fix: their token.sub is a random v4 UUID (not a

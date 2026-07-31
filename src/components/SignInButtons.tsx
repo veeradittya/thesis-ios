@@ -5,13 +5,31 @@ import { signIn } from "next-auth/react";
 // The two login options, presented with EQUAL prominence — Apple App Store Guideline 4.8 +
 // Apple's HIG require "Sign in with Apple" to sit alongside other social logins, same size,
 // not hidden or below the fold. Both are full-width, same height, dark-theme brand variants
-// so they read as peers on the app's near-black background. Runs the standard Auth.js web
-// OAuth flow (works inside the native WKWebView shell — no native code involved).
+// so they read as peers on the app's near-black background.
+//
+// Google routes to the NATIVE Sign-In SDK when running inside the iOS shell (a smooth one-tap
+// account picker that shares the device's Google session), and falls back to web OAuth everywhere
+// else. Apple uses the web OAuth flow (works inside the WKWebView). No native code lives here.
+function continueWithGoogle(callbackUrl: string) {
+  const handler = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { thesisGoogleSignIn?: { postMessage: (m: unknown) => void } } };
+    }
+  ).webkit?.messageHandlers?.thesisGoogleSignIn;
+  // Inside the native shell: ask it to run GIDSignIn. It calls window.__thesisNativeGoogleSignIn(idToken)
+  // back (see NativeGoogleSignIn.tsx) to complete the session. Elsewhere: standard web OAuth.
+  if (handler) {
+    handler.postMessage({});
+    return;
+  }
+  signIn("google", { callbackUrl });
+}
+
 export function SignInButtons({ callbackUrl = "/" }: { callbackUrl?: string }) {
   return (
     <div className="flex w-full max-w-[320px] flex-col gap-3">
       <button
-        onClick={() => signIn("google", { callbackUrl })}
+        onClick={() => continueWithGoogle(callbackUrl)}
         className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-[#131314] text-[16px] font-medium text-white transition-colors hover:bg-[#1d1d1f]"
       >
         <GoogleLogo className="h-[18px] w-[18px]" />

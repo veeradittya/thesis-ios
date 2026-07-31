@@ -85,6 +85,29 @@ fresh-brief ≤3h discovery, dedupe, prune dead tokens) · daily Vercel cron 13:
 `APNS_ENV` (**sandbox** for dev/direct-install builds, **production** for TestFlight/App Store),
 `PUSH_SEND_SECRET`, `CRON_SECRET`. Free Apple accounts cannot do push at all.
 
+## Sign-in — Google + Apple, and native one-tap Google
+Auth.js v5 (JWT, no DB). Providers in `src/auth.ts`: **Google**, **Apple** (both web OAuth, run inside the
+WKWebView), and **`google-native`** (a Credentials provider for the smooth native flow). The account entry
+is a chooser (`SignInButtons.tsx`) — mobile shows it on the Account tab, desktop in a modal — never a
+single provider directly. All three yield ONE identity per person: `token.sub` = the Google/Apple `sub`
+(Apple's is a separate namespace, so an Apple login is a distinct user from the same person's Google login).
+
+**Native Google one-tap** (`google-native`): the iOS shell runs `GIDSignIn` (system account picker,
+shares the device Google session → nothing typed), gets a Google **ID token**, and hands it to the
+WKWebView. Server verifies it (`src/lib/googleVerify.ts`, Google tokeninfo) and mints our session cookie
+*in the webview*. **Native contract — DO NOT break (two halves):**
+- Outbound: the "Continue with Google" button (`SignInButtons.tsx`), when
+  `window.webkit.messageHandlers.thesisGoogleSignIn` exists, calls its `.postMessage({})` instead of the
+  web flow. The shell registers that message handler → runs `GIDSignIn` → then calls the inbound bridge.
+  Everywhere the handler is absent (desktop, mobile web) it falls back to web `signIn("google")`.
+- Inbound: `window.__thesisNativeGoogleSignIn(idToken) → Promise<boolean>` must stay defined
+  (`NativeGoogleSignIn.tsx`, mounted in `Providers`); it calls `signIn("google-native", { idToken })` and
+  reloads on success. Resolves `false` on failure so the native side can retry.
+- Configure `GIDSignIn` with `serverClientID = AUTH_GOOGLE_ID` so the ID token's `aud` is the web client
+  id → the verified `sub` matches web Google sign-in (one identity). Optional `GOOGLE_IOS_CLIENT_ID` env
+  also whitelists tokens minted for the iOS client id. No secret needed; the button-based web Google flow
+  is unaffected and works without any of this.
+
 ## 🚀 Deploying / hosting this site
 Self-hosted at `https://betathesis.com` on the box **anton** via a Cloudflare Tunnel + systemd.
 **If you are the Claude session on anton (or hosting this site): read and follow
