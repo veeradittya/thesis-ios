@@ -82,7 +82,10 @@ export async function getNews(query: string): Promise<NewsPayload> {
 
   let res: Response;
   try {
-    res = await guardianFetch(`${BASE}/search?${params.toString()}`, { next: { revalidate: 300 } });
+    // no-store: Next's Data Cache was serving a stuck multi-day-stale response for specific query keys
+    // (a reordered query — a cache miss — returned fresh data while the original stayed frozen). The
+    // in-memory `cache` above (5-min TTL) still throttles Guardian API calls. Same fix as getLiveBlog.
+    res = await guardianFetch(`${BASE}/search?${params.toString()}`, { cache: "no-store" });
   } catch (e) {
     if (cache && cache.key === q) return cache.data; // serve stale on network error
     throw e;
