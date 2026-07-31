@@ -6,6 +6,7 @@ import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
 import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
 import { ComingSoonPill } from "@/components/ComingSoonPill";
+import { SignInButtons } from "@/components/SignInButtons";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
 import { ThesisMonitorCard } from "@/components/ThesisMonitorCard";
@@ -233,6 +234,7 @@ export function MonacoHome() {
   // Auth (Google sign-in) + the account dropdown.
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
+  const [signInOpen, setSignInOpen] = useState(false); // desktop: sign-in chooser modal (Google + Apple)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
   // Deep link: tapping the daily-brief push opens the app with ?view=brief. Honour ?view= on load.
   useEffect(() => {
@@ -906,12 +908,17 @@ export function MonacoHome() {
                 )
               ) : (
                 <button
-                  onClick={() => signIn("google")}
+                  onClick={() => {
+                    // New user: open the sign-in chooser (Google + Apple), never a single provider
+                    // directly. Phone → the Account page hosts the chooser; desktop → a modal.
+                    if (isMobile) { setMobilePage("account"); window.scrollTo({ top: 0, behavior: "smooth" }); }
+                    else setSignInOpen(true);
+                  }}
                   className={
                     isMobile
-                      ? // Phone: no pill — plain text at the same resting opacity as the other tabs
-                        // (an inactive tab), so it reads as a peer and THESIS stays centered.
-                        "whitespace-nowrap opacity-50 transition-opacity hover:opacity-100"
+                      ? // Phone: no pill — plain text that reads as a peer of the other tabs (so THESIS
+                        // stays centered) and brightens to full opacity when its Account page is active.
+                        `whitespace-nowrap transition-opacity ${mobilePage === "account" ? "opacity-100" : "opacity-50 hover:opacity-100"}`
                       : "inline-flex items-center justify-center whitespace-nowrap rounded-[42px] bg-black text-white transition-all duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white hover:text-black"
                   }
                   style={
@@ -944,6 +951,32 @@ export function MonacoHome() {
         </div>
       )}
 
+      {/* Desktop sign-in chooser — both options (Apple + Google) with equal prominence, opened from
+          the "Log in" nav button. (Phone hosts the same chooser on its Account page.) */}
+      {signInOpen && !session?.user && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center px-6">
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={() => setSignInOpen(false)} />
+          <div className="relative z-10 w-full max-w-[380px] rounded-[20px] border border-white/10 bg-[#141414]/95 p-8 shadow-[0_24px_70px_rgba(0,0,0,0.65)]">
+            <button
+              onClick={() => setSignInOpen(false)}
+              aria-label="Close"
+              className="absolute right-4 top-4 grid h-7 w-7 place-items-center rounded-full text-[15px] text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white/80"
+            >
+              ✕
+            </button>
+            <div className="mb-9 text-center">
+              <p className="text-[26px] font-medium text-white">Log in or sign up</p>
+              <p className="mx-auto mt-3.5 max-w-[300px] text-[18.5px] leading-snug text-[#bcbcbc]">
+                {"You'll get access to a customizable portfolio, a daily brief, insights, and more."}
+              </p>
+            </div>
+            <div className="flex justify-center">
+              <SignInButtons />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Body: desktop = pannable card canvas · mobile = native vertical stack ── */}
       {/* Mobile: no nested scroll container — the DOCUMENT scrolls (smoothest native path:
           momentum, rubber-band, URL-bar collapse). Desktop keeps the pannable scroller. */}
@@ -958,16 +991,30 @@ export function MonacoHome() {
               // back to <ThesisMonitorCard/> to revert.
               <BriefReveal user={monitorUser} onCondense={setNavCondensed} />
             ) : mobilePage === "account" ? (
-              // "Account" tab (signed in) — the only thing here is the logout option.
-              <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-5 px-6">
-                {session?.user?.email && <p className="text-[13px] text-[#8a8a8a]">Signed in as {session.user.email}</p>}
-                <button
-                  onClick={() => signOut()}
-                  className="rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
-                >
-                  Log out
-                </button>
-              </div>
+              session?.user ? (
+                // "Account" tab, signed in — the only thing here is the logout option.
+                <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-5 px-6">
+                  {session.user.email && <p className="text-[13px] text-[#8a8a8a]">Signed in as {session.user.email}</p>}
+                  <button
+                    onClick={() => signOut()}
+                    className="rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
+                  >
+                    Log out
+                  </button>
+                </div>
+              ) : (
+                // "Account" tab, signed out — the sign-in page: both options (Apple + Google), equal
+                // prominence, before the fold (App Store Guideline 4.8 / Apple HIG).
+                <div className="flex min-h-[calc(100dvh-180px)] flex-col items-center justify-center gap-9 px-6">
+                  <div className="text-center">
+                    <p className="text-[25px] font-medium text-white">Log in or sign up</p>
+                    <p className="mx-auto mt-3.5 max-w-[300px] text-[18.5px] leading-snug text-[#bcbcbc]">
+                      {"You'll get access to a customizable portfolio, a daily brief, insights, and more."}
+                    </p>
+                  </div>
+                  <SignInButtons />
+                </div>
+              )
             ) : mobilePage === "portfolio" ? (
               // "Portfolio" tab — the ledger embedded straight on the black background (no card):
               // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
