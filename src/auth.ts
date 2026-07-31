@@ -3,6 +3,7 @@ import Google from "next-auth/providers/google";
 import Apple from "next-auth/providers/apple";
 import Credentials from "next-auth/providers/credentials";
 import { verifyGoogleIdToken } from "@/lib/googleVerify";
+import { verifyAppleIdentityToken } from "@/lib/appleVerify";
 import { recordSignIn, logActivity, getCanonicalUserId } from "@/lib/turso";
 
 // Auth.js (NextAuth v5) — Google + Apple sign-in with stateless JWT sessions (no DB yet).
@@ -33,6 +34,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return { id: id.sub, email: id.email ?? undefined, name: id.name ?? undefined, image: id.picture ?? undefined };
       },
     }),
+    // Native iOS Sign in with Apple (Apple's web flow is unreliable inside the WKWebView). The native
+    // shell presents the system Apple sheet and calls signIn("apple-native", { identityToken, nonce,
+    // email?, name? }) — email/name only on the user's FIRST authorization. We verify the identity
+    // token against Apple's public keys + the raw nonce, then mint OUR session cookie in the webview.
+    // The returned `id` is Apple's stable `sub` — identical to the web "apple" provider, so native +
+    // web Apple are ONE identity (a distinct namespace from Google). Invoked only via the bridge.
+    Credentials({
+      id: "apple-native",
+      name: "Apple (native iOS)",
+      credentials: { identityToken: {}, nonce: {}, email: {}, name: {} },
+      async authorize(creds) {
+        const identityToken = typeof creds?.identityToken === "string" ? creds.identityToken : "";
+        const nonce = typeof creds?.nonce === "string" ? creds.nonce : "";
+        const id = await verifyAppleIdentityToken(identityToken, nonce);
+        if (!id?.sub) return null;
+        // Apple returns email/name only on the first authorization and the token may omit email — fall
+        // back to what native forwarded from that first consent so the users table can be populated.
+        const email = id.email ?? (typeof creds?.email === "string" ? creds.email : undefined);
+        const name = typeof creds?.name === "string" ? creds.name : undefined;
+        return { id: id.sub, email: email ?? undefined, name };
+      },
+    }),
   ],
   session: { strategy: "jwt" },
   trustHost: true, // self-hosted (localhost and any non-Vercel host)
@@ -46,9 +69,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         token.sub = String(profile.sub);
         return token;
       }
-      // Native Google (the `google-native` Credentials provider) has no OAuth `profile`, but `user.id`
-      // is the verified Google `sub` — pin it so this session is the SAME identity as web Google
-      // sign-in. (`user` is only present on the initial sign-in call.)
+      // Native Credentials sign-ins (`google-native` / `apple-native`) have no OAuth `profile`, but
+      // `user.id` is the verified provider `sub` — pin it so the session is the SAME identity as the
+      // matching web flow (Google sub for google-native, Apple sub for apple-native). (`user` is only
+      // present on the initial sign-in call.)
       if (user?.id) {
         token.sub = String(user.id);
         return token;

@@ -7,9 +7,10 @@ import { signIn } from "next-auth/react";
 // not hidden or below the fold. Both are full-width, same height, dark-theme brand variants
 // so they read as peers on the app's near-black background.
 //
-// Google routes to the NATIVE Sign-In SDK when running inside the iOS shell (a smooth one-tap
-// account picker that shares the device's Google session), and falls back to web OAuth everywhere
-// else. Apple uses the web OAuth flow (works inside the WKWebView). No native code lives here.
+// Both buttons route to the NATIVE sign-in sheet when running inside the iOS shell (Google: a smooth
+// one-tap picker sharing the device's Google session; Apple: the system Apple sheet, since Apple's web
+// flow is unreliable in the WKWebView), and fall back to web OAuth everywhere else (desktop / mobile
+// web). No native code lives here — only the postMessage handoff.
 function continueWithGoogle(callbackUrl: string) {
   const handler = (
     window as unknown as {
@@ -25,6 +26,21 @@ function continueWithGoogle(callbackUrl: string) {
   signIn("google", { callbackUrl });
 }
 
+function continueWithApple(callbackUrl: string) {
+  const handler = (
+    window as unknown as {
+      webkit?: { messageHandlers?: { thesisAppleSignIn?: { postMessage: (m: unknown) => void } } };
+    }
+  ).webkit?.messageHandlers?.thesisAppleSignIn;
+  // Inside the native shell: ask it to present the system Apple sheet. It calls
+  // window.__thesisNativeAppleSignIn(payload) back (see NativeAppleSignIn.tsx). Elsewhere: web OAuth.
+  if (handler) {
+    handler.postMessage({});
+    return;
+  }
+  signIn("apple", { callbackUrl });
+}
+
 export function SignInButtons({ callbackUrl = "/" }: { callbackUrl?: string }) {
   return (
     <div className="flex w-full max-w-[320px] flex-col gap-3">
@@ -36,7 +52,7 @@ export function SignInButtons({ callbackUrl = "/" }: { callbackUrl?: string }) {
         Continue with Google
       </button>
       <button
-        onClick={() => signIn("apple", { callbackUrl })}
+        onClick={() => continueWithApple(callbackUrl)}
         className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-black text-[16px] font-medium text-white transition-colors hover:bg-[#111]"
       >
         <AppleLogo className="h-[19px] w-[19px]" />

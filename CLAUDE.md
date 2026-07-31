@@ -85,12 +85,14 @@ fresh-brief ≤3h discovery, dedupe, prune dead tokens) · daily Vercel cron 13:
 `APNS_ENV` (**sandbox** for dev/direct-install builds, **production** for TestFlight/App Store),
 `PUSH_SEND_SECRET`, `CRON_SECRET`. Free Apple accounts cannot do push at all.
 
-## Sign-in — Google + Apple, and native one-tap Google
+## Sign-in — Google + Apple, and native one-tap for both
 Auth.js v5 (JWT, no DB). Providers in `src/auth.ts`: **Google**, **Apple** (both web OAuth, run inside the
-WKWebView), and **`google-native`** (a Credentials provider for the smooth native flow). The account entry
-is a chooser (`SignInButtons.tsx`) — mobile shows it on the Account tab, desktop in a modal — never a
-single provider directly. All three yield ONE identity per person: `token.sub` = the Google/Apple `sub`
-(Apple's is a separate namespace, so an Apple login is a distinct user from the same person's Google login).
+WKWebView), plus two Credentials providers for the smooth in-app flows — **`google-native`** and
+**`apple-native`**. The account entry is a chooser (`SignInButtons.tsx`) — mobile shows it on the Account
+tab, desktop in a modal — never a single provider directly. All yield ONE identity per person:
+`token.sub` = the Google/Apple `sub`, and a native sign-in matches its web counterpart (native + web
+Google are one identity; native + web Apple are one identity). Apple's `sub` is a separate namespace, so
+an Apple login is a distinct user from the same person's Google login.
 
 **Native Google one-tap** (`google-native`): the iOS shell runs `GIDSignIn` (system account picker,
 shares the device Google session → nothing typed), gets a Google **ID token**, and hands it to the
@@ -107,6 +109,21 @@ WKWebView. Server verifies it (`src/lib/googleVerify.ts`, Google tokeninfo) and 
   id → the verified `sub` matches web Google sign-in (one identity). Optional `GOOGLE_IOS_CLIENT_ID` env
   also whitelists tokens minted for the iOS client id. No secret needed; the button-based web Google flow
   is unaffected and works without any of this.
+
+**Native Apple** (`apple-native`): Apple's web flow is unreliable in the WKWebView, so in-app the shell
+presents the system Apple sheet and hands back a native identity token. Server verifies it
+(`src/lib/appleVerify.ts`, jose against Apple's JWKS) and mints our session cookie *in the webview*.
+**Native contract — DO NOT break (two halves):**
+- Outbound: the "Continue with Apple" button (`SignInButtons.tsx`), when
+  `window.webkit.messageHandlers.thesisAppleSignIn` exists, calls its `.postMessage({})` instead of the
+  web flow; absent (desktop, mobile web) it falls back to web `signIn("apple")`.
+- Inbound: `window.__thesisNativeAppleSignIn({ identityToken, nonce, email?, name? }) → Promise<boolean>`
+  must stay defined (`NativeAppleSignIn.tsx`, mounted in `Providers`); it calls `signIn("apple-native",
+  …)` and reloads on success (`false` on failure so native can retry). `email`/`name` arrive ONLY on the
+  user's first authorization.
+- Verification requires `aud === APPLE_NATIVE_AUD` (the app **bundle id**, default `com.betathesis.app`)
+  and `sha256hex(nonce) === token.nonce` (native sends the RAW nonce; token carries its SHA-256 hex). NO
+  secret/key — native identity tokens are verified against Apple's public keys.
 
 ## 🚀 Deploying / hosting this site
 Self-hosted at `https://betathesis.com` on the box **anton** via a Cloudflare Tunnel + systemd.
