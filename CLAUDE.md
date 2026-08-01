@@ -41,7 +41,12 @@ Python + web_search/web_fetch), with a persistent memory store and a vault holdi
 `assets(ticker PK, verdict, risk, rationale, signals, analyst_brief, researched_at)` (shared per-stock research —
 written by the agent; `analyst_brief` is the succinct plain-language analyst-sentiment line the Analyst Sentiment
 card shows, read via `/api/analyst-brief`), `portfolios(user_id PK, memo, updated_at)` (per-portfolio overview —
-written by the agent).
+written by the agent), `theses(user_id, ticker, thesis_text, assumptions, status, status_rationale,
+last_reviewed_at, last_alerted_at; PK (user_id,ticker))` (**Thesis Watch** — the agent's working model of each
+user's per-stock investment thesis: it decomposes `holdings.thesis` into load-bearing assumptions + leading
+indicators, checks them daily, and grades `status` intact|watch|stressed. The brief mentions a thesis ONLY when
+it's under stress — silence means intact. Separate from `holdings` on purpose: `holdings` is `INSERT OR REPLACE`d
+on every ledger sync, so agent-owned thesis state must not live there).
 
 **Data flow:** ledger edit → `/api/portfolio/sync` → `holdings`; the agent reads `holdings` and writes
 `assets` + `portfolios`; card → `/api/monitor?user=<scope>` → `getLatestMonitor()` (joins a portfolio's

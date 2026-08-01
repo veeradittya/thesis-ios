@@ -289,7 +289,7 @@ export async function deletePushToken(token: string): Promise<void> {
 export async function deleteAccount(userId: string): Promise<void> {
   const uid = (userId || "").trim();
   if (!uid) throw new Error("deleteAccount: missing userId");
-  const tables = ["holdings", "portfolios", "push_tokens", "users", "activity_log"];
+  const tables = ["holdings", "portfolios", "push_tokens", "users", "activity_log", "theses"];
   await pipeline(tables.map((t) => ({ type: "execute", stmt: { sql: `DELETE FROM ${t} WHERE user_id=?`, args: [typed(uid)] } })));
 }
 
