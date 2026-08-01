@@ -30,6 +30,7 @@ import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
 import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
 import { PullToRefresh } from "@/components/PullToRefresh";
+import { ThesisIntro } from "@/components/ThesisIntro";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -858,6 +859,7 @@ export function MonacoHome() {
                 absolute centering. Scale (GPU, sub-pixel) is smoother than animating font-size. */}
             <div className={isMobile ? "z-10 shrink-0" : "absolute left-1/2 z-10 -translate-x-1/2"}>
               <button
+                data-thesis-wordmark
                 className="text-white"
                 style={{ fontFamily: "var(--font-serif), Georgia, serif", fontSize: "clamp(17px, 1.8vw + 10px, 26px)", fontWeight: 500, letterSpacing: "0.05em", lineHeight: 1, transformOrigin: "center", transform: navSmall ? "scale(0.82)" : "scale(1)", transition: "transform 380ms cubic-bezier(0.22,1,0.36,1)" }}
               >
@@ -1310,6 +1312,9 @@ export function MonacoHome() {
       </main>
 
       {menu && <ContextMenu x={menu.vx} y={menu.vy} items={menuItems} onClose={() => setMenu(null)} />}
+
+      {/* First-launch brand moment — self-gates on localStorage, morphs into the nav wordmark. */}
+      <ThesisIntro />
     </div>
   );
 }
