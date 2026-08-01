@@ -1096,6 +1096,7 @@ export function MonacoHome() {
                   <PortfolioLedger
                     data={ledger}
                     onChange={setLedger}
+                    readOnly={!authed}
                     refreshSignal={priceRefresh}
                     onRefreshed={() => { priceRefreshResolve.current?.(); priceRefreshResolve.current = null; }}
                   />
@@ -1270,7 +1271,7 @@ export function MonacoHome() {
             style={{ width: canvasSize.w, height: canvasSize.h }}
           >
             {/* default positions/sizes come from the fill-height packer (computeHomeLayout) */}
-            <LedgerCard data={ledger} editable onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
+            <LedgerCard data={ledger} editable={authed} onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
             <ThesisMonitorCard user={monitorUser} x={homeL.monitor.x} y={homeL.monitor.y} width={homeL.monitor.w} height={homeL.monitor.h} />
             <PortfolioMarketsCard holdings={ledger.holdings} x={homeL.markets.x} y={homeL.markets.y} width={homeL.markets.w} height={homeL.markets.h} onOpenMarket={openMarket} onOpenEvent={openEvent} />
             <WhaleCard x={homeL.whale.x} y={homeL.whale.y} width={homeL.whale.w} height={homeL.whale.h} />

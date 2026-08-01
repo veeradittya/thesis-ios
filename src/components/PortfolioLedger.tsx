@@ -73,7 +73,7 @@ const SEARCH_MORPH = { type: "spring", stiffness: 420, damping: 40 } as const;
 // which keeps the non-uniform scale phase short — the window where text could look distorted.
 const CARD_MORPH = { type: "spring", stiffness: 520, damping: 46 } as const;
 
-export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: { data: ParsedPortfolio; onChange?: (next: ParsedPortfolio) => void; refreshSignal?: number; onRefreshed?: () => void }) {
+export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, readOnly = false }: { data: ParsedPortfolio; onChange?: (next: ParsedPortfolio) => void; refreshSignal?: number; onRefreshed?: () => void; readOnly?: boolean }) {
   const id = useId(); // scopes the shared layoutIds to this instance (Aceternity pattern)
   const [rows, setRows] = useState<DraftRow[]>(() => data.holdings.map(toDraft));
   const [expanded, setExpanded] = useState<number | null>(null);
@@ -86,11 +86,14 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sig]);
 
-  const commit = (next: DraftRow[]) => onChange?.(rebuild(data, next));
+  // Guests can view the demo portfolio but not change it — every mutation is a no-op when readOnly
+  // (the editing UI is also gated below, so these are defense-in-depth).
+  const commit = (next: DraftRow[]) => { if (readOnly) return; onChange?.(rebuild(data, next)); };
   const setRow = (i: number, patch: Partial<DraftRow>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const removeRow = (i: number) => { const next = rows.filter((_, j) => j !== i); setExpanded(null); setRows(next); commit(next); };
+  const removeRow = (i: number) => { if (readOnly) return; const next = rows.filter((_, j) => j !== i); setExpanded(null); setRows(next); commit(next); };
   // Append a holding by ticker/name (from the search box or a suggestion); skip blanks + duplicates.
   const addHolding = (ticker: string, name: string) => {
+    if (readOnly) return;
     const t = ticker.trim().toUpperCase();
     if (!t || rows.some((r) => r.ticker.trim().toUpperCase() === t)) return;
     const next = [...rows, { ticker: t, name: name && name.toUpperCase() !== t ? name : "", shares: "", price: "", thesis: "" }];
@@ -223,27 +226,40 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
           const q = quotes[r.ticker.trim().toUpperCase()];
           const up = (q?.percent ?? 0) >= 0;
           const flash = q?.flashDir;
+          const inner = (
+            <>
+              <div className="min-w-0">
+                <p className="text-[16px] font-medium leading-tight text-white">{r.ticker || "New holding"}</p>
+                {r.name && <p className="truncate text-[13px] leading-tight text-[#8a8a8a]">{r.name}</p>}
+              </div>
+              <div className="shrink-0 text-right">
+                <p className={cn(
+                  "rounded px-1 text-[16px] leading-tight tabular-nums text-white transition-colors duration-300",
+                  flash === "up" ? "bg-emerald-500/25" : flash === "down" ? "bg-rose-500/25" : "bg-transparent",
+                )}>
+                  {fmtPrice(q?.price ?? null)}
+                </p>
+                <p className={cn("text-[13px] leading-tight tabular-nums", q?.percent == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400")}>
+                  {fmtPct(q?.percent ?? null)}
+                </p>
+              </div>
+            </>
+          );
+          // Read-only (guest): a plain, non-swipeable, non-tappable row — no edit/remove affordances.
+          if (readOnly) {
+            return (
+              <li key={r.ticker || `row-${i}`} className="bg-black px-4">
+                <div className="flex w-full items-center justify-between gap-3 py-1">{inner}</div>
+              </li>
+            );
+          }
           return (
             // Key by ticker (not index) so removing a swiped row doesn't leave its neighbour open.
             <SwipeRow key={r.ticker || `row-${i}`} onRemove={() => removeRow(i)} onOpen={() => setExpanded(i)}>
               {/* Only the card container carries a layoutId — nested layout children fight the row's
                   horizontal drag (swipe), so the contents are plain and morph with the card. */}
               <motion.div layoutId={`card-${i}-${id}`} className="flex w-full items-center justify-between gap-3 py-1">
-                <div className="min-w-0">
-                  <p className="text-[16px] font-medium leading-tight text-white">{r.ticker || "New holding"}</p>
-                  {r.name && <p className="truncate text-[13px] leading-tight text-[#8a8a8a]">{r.name}</p>}
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className={cn(
-                    "rounded px-1 text-[16px] leading-tight tabular-nums text-white transition-colors duration-300",
-                    flash === "up" ? "bg-emerald-500/25" : flash === "down" ? "bg-rose-500/25" : "bg-transparent",
-                  )}>
-                    {fmtPrice(q?.price ?? null)}
-                  </p>
-                  <p className={cn("text-[13px] leading-tight tabular-nums", q?.percent == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400")}>
-                    {fmtPct(q?.percent ?? null)}
-                  </p>
-                </div>
+                {inner}
               </motion.div>
             </SwipeRow>
           );
@@ -251,16 +267,20 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
       </ul>
       {rows.length === 0 && (
         <p className="px-4 pb-4 pt-1 text-[13px] leading-snug text-[#8a8a8a]">
-          No holdings yet. Search or tap <span className="text-white/80">Add</span> below to build your portfolio.
+          {readOnly ? (
+            "No holdings to show."
+          ) : (
+            <>No holdings yet. Search or tap <span className="text-white/80">Add</span> below to build your portfolio.</>
+          )}
         </p>
       )}
       </div>
 
-      {/* Add assets — ALWAYS visible, even with an EMPTY portfolio, so emptying your holdings can
-          never strand you: the search bar, the refresh button, and the Suggested-for-you list stay
-          put so you can always add stocks back. (recommend() returns the popularity-ranked universe
-          when there are no picks.) A heading + magnifier that morphs (shared layoutId) into a
-          full-width search bar, plus the portfolio-aware suggestions. */}
+      {/* Add assets (signed-in only) — ALWAYS visible for editors, even with an EMPTY portfolio, so
+          emptying your holdings can never strand you: the search bar, the refresh button, and the
+          Suggested-for-you list stay put so you can always add stocks back. (recommend() returns the
+          popularity-ranked universe when there are no picks.) Guests get a sign-in prompt instead. */}
+      {!readOnly ? (
       <div className="mt-3 px-1 pt-4">
           <div className="flex h-8 items-center justify-between">
             <p className="text-[12px] uppercase tracking-wider text-white">Suggested for you</p>
@@ -384,6 +404,11 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed }: 
                 ))}
           </ul>
         </div>
+      ) : (
+        <p className="mt-5 px-1 text-[13px] leading-snug text-[#8a8a8a]">
+          <span className="text-white/80">Sign in on the Account tab</span> to build your own portfolio.
+        </p>
+      )}
 
       {/* expanded editor — the Aceternity expandable-card modal */}
       <AnimatePresence>
