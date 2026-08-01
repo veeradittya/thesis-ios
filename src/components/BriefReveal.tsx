@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import { motion, useMotionValueEvent, useScroll } from "motion/react";
+import { motion, useMotionValueEvent, useScroll, useTransform } from "motion/react";
 import { stripCitations } from "@/lib/briefText";
 
 // EXPERIMENT (mobile Brief page only): the daily-brief text as a sticky-scroll reveal — one chunk
@@ -69,6 +69,8 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
   const accum = useRef(0); // scroll distance since the last direction change (nav-condense threshold)
   const { scrollY, scrollYProgress } = useScroll({ container: ref, offset: ["start start", "end start"] });
   const [active, setActive] = useState(0);
+  // "Scroll to read" hint fades out over the first bit of scrolling (and returns at the top).
+  const hintOpacity = useTransform(scrollY, [0, 120], [1, 0]);
 
   const stamp = fmtDateTime(data?.updatedAt ?? null);
   // Only holdings the agent has actually written up become sections. A freshly-added stock has no
@@ -150,6 +152,7 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
   useEffect(() => () => onCondense?.(false), [onCondense]); // restore the nav when leaving Brief
 
   return (
+    <>
     <div ref={ref} className="no-scrollbar relative h-[100dvh] overflow-y-auto">
       {n === 0 ? (
         <p className="flex h-full items-center justify-center text-[15px] text-[#8a8a8a]">Loading briefing…</p>
@@ -174,5 +177,27 @@ export function BriefReveal({ user = "pilot", onCondense }: { user?: string; onC
         </div>
       )}
     </div>
+
+      {/* Scroll-to-read hint — pinned just above the floating nav, a left→right pulse across the label
+          plus a bouncing down-chevron. Fades out once you start scrolling; returns at the top. Shown
+          only when there's more than the opening chunk to read. */}
+      {n >= 2 && (
+        <motion.div
+          style={{ opacity: hintOpacity }}
+          className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+100px)] z-40 flex flex-col items-center gap-1"
+          aria-hidden
+        >
+          <span className="shimmer-coming-soon text-[11px] font-medium uppercase tracking-[0.2em]">Scroll to read</span>
+          <motion.svg
+            width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            className="text-white/45"
+            animate={{ y: [0, 4, 0] }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <path d="m6 9 6 6 6-6" />
+          </motion.svg>
+        </motion.div>
+      )}
+    </>
   );
 }
