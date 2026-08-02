@@ -21,10 +21,9 @@ const ThesisIntroGlobe = dynamic(
 // Shows ONCE per install.
 
 const SEEN_KEY = "thesis.intro.v1";
-// In development the intro replays on EVERY refresh (and never marks itself seen), so you can watch the
-// whole sequence each reload while tuning. A production build (`next build`) automatically reverts to
-// once-per-install — no flag to remember to flip before shipping.
-const ALWAYS_REPLAY = process.env.NODE_ENV === "development";
+// DEV ONLY: when true, the intro replays on EVERY reload and never marks itself seen — for local
+// tuning. false = once-per-install (shipping).
+const ALWAYS_REPLAY = false;
 const SUBTEXT = "Your worldview, monitored around the clock.";
 const EASE = [0.22, 1, 0.36, 1] as const;
 const HERO_Y = 0.5; // hero wordmark vertical center
