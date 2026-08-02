@@ -264,7 +264,24 @@ export function MonacoHome() {
   };
 
   // Auth (Google sign-in) + the account dropdown.
-  const { data: session, status } = useSession();
+  const { data: sessionData, status: sessionStatus } = useSession();
+  // DEV ONLY (auto-off in production builds): land straight in the signed-in app without OAuth so the
+  // logged-in UI can be worked on. Synthesizes an authenticated session over the demo scope ("pilot"), so
+  // the brief + portfolio show demo content but in editable / "my account" mode. A real sign-in still
+  // takes precedence. Set to false to get the guest + sign-up-gate flow back in dev.
+  const DEV_FORCE_LOGIN = false; // set true (or process.env.NODE_ENV === "development") to preview the signed-in app without OAuth
+  const [devSignedOut, setDevSignedOut] = useState(false); // dev: "Log out" drops to the guest demo instead of re-forcing pilot
+  const devForced = DEV_FORCE_LOGIN && !sessionData?.user && !devSignedOut;
+  const session = devForced
+    ? ({ user: { id: "pilot", name: "Dev User", email: "dev@thesis.local" }, expires: "" } as typeof sessionData)
+    : sessionData;
+  const status = devForced ? "authenticated" : sessionStatus;
+  // Log out → guest demo. In dev (no real session) this just drops the synthetic pilot login so the
+  // signed-out state is observable; otherwise it's a normal next-auth sign-out (which reloads to the demo).
+  const handleLogout = () => {
+    if (DEV_FORCE_LOGIN && !sessionData?.user) { setDevSignedOut(true); return; }
+    signOut();
+  };
   const [acctMenu, setAcctMenu] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false); // desktop: sign-in chooser modal (Google + Apple)
   const [signupDismissed, setSignupDismissed] = useState(false); // logged-out sign-up gate → "later" dismisses
@@ -748,21 +765,16 @@ export function MonacoHome() {
   ];
 
   // Ledger source:
-  //  • guest → restore a locally-edited portfolio, else seed the PanAgora demo. Guests can edit;
-  //    their ledger persists browser-locally (guest scope) and promotes to the account on sign-in.
-  //  • authenticated → restore this account's cached ledger, else promote a guest ledger / seed PanAgora.
+  //  • guest (signed out) → ALWAYS the fixed, read-only demo. Nothing a guest does persists, so the demo
+  //    is identical for every signed-out visitor and can never drift.
+  //  • authenticated → restore this account's cached ledger (this device), else its Turso portfolio
+  //    (cross-device), else seed the demo as a starting point. Edits persist to this account only.
   // `ledgerScope` tracks which scope the loaded ledger belongs to, so the persist effect writes to
-  // the right bucket and never before the restore completes.
+  // the right bucket (and only for a signed-in account) and never before the restore completes.
   const [ledgerScope, setLedgerScope] = useState<string | null>(null);
   useEffect(() => {
     if (status === "loading") return; // wait for the session to resolve before choosing a source
     let cancelled = false;
-    const loadGuestLedger = (): ParsedPortfolio | null => {
-      try {
-        const g = JSON.parse(localStorage.getItem(GUEST_LEDGER_KEY) || "null");
-        return g && Array.isArray(g.holdings) ? (g as ParsedPortfolio) : null;
-      } catch { return null; }
-    };
     (async () => {
       if (authed && scope) {
         try {
@@ -792,21 +804,22 @@ export function MonacoHome() {
           }
         } catch {}
         if (cancelled) return;
-        // Nothing on the server → promote a guest-built portfolio if present, else seed the retail demo.
-        const promoted = loadGuestLedger();
-        const seed = promoted ?? demoPortfolio();
-        if (!cancelled) { setLedger(promoted ? seed : firstName ? { ...seed, portfolioName: firstName } : seed); setLedgerScope(scope); }
-        try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {}
-        // New user: signed in, but no portfolio anywhere (server or guest) and onboarding never completed
-        // on this device → this is a first-time account, so run the same onboarding wizard the sign-up
-        // gate uses. A returning user's holdings load from Turso above (early return), so they skip this.
-        if (!cancelled && !promoted) {
+        // Nothing on the server → seed the demo as this account's starting point (named after the user).
+        // A signed-out guest's demo is NEVER promoted onto an account; portfolios belong to their owner.
+        const seed = firstName ? { ...demoPortfolio(), portfolioName: firstName } : demoPortfolio();
+        if (!cancelled) { setLedger(seed); setLedgerScope(scope); }
+        try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {} // retire any stale guest ledger
+        // New user: signed in with no portfolio anywhere and onboarding never completed on this device →
+        // first-time account, so run the onboarding wizard. Returning users load from Turso above (early
+        // return) and skip this. Skipped under DEV_FORCE_LOGIN so the dev login lands in the app.
+        if (!cancelled && !DEV_FORCE_LOGIN) {
           try { if (!localStorage.getItem("thesis.onboarding.v1")) setOnboarding(true); } catch {}
         }
       } else {
-        // Guest → restore a locally-edited portfolio, else seed the retail demo (both editable).
-        const seed = loadGuestLedger() ?? demoPortfolio();
-        if (!cancelled && seed) { setLedger(seed); setLedgerScope("guest"); }
+        // Signed out → ALWAYS the fixed, read-only demo. Nothing a guest does persists, and any stale
+        // guest ledger from an older build is cleared, so the demo can never drift between visitors/visits.
+        try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {}
+        if (!cancelled) { setLedger(demoPortfolio()); setLedgerScope("guest"); }
       }
     })();
     return () => { cancelled = true; };
@@ -816,11 +829,10 @@ export function MonacoHome() {
   // `ledgerScope === scope` so we never save before restore, or save one account's ledger under another.
   useEffect(() => {
     if (!ledger) return;
+    // ONLY a signed-in account persists its ledger (per-account, this device). A signed-out guest never
+    // writes anything — the demo stays constant and read-only for everyone who isn't logged in.
     if (authed && scope && ledgerScope === scope) {
       try { localStorage.setItem(acctLedgerKey(scope), JSON.stringify(ledger)); } catch {}
-    } else if (!authed && ledgerScope === "guest") {
-      // Guest edits persist browser-locally (ephemeral; promoted to the account on sign-in).
-      try { localStorage.setItem(GUEST_LEDGER_KEY, JSON.stringify(ledger)); } catch {}
     }
   }, [ledger, authed, scope, ledgerScope]);
 
@@ -1005,7 +1017,7 @@ export function MonacoHome() {
                           {session.user.email && <p className="truncate text-[11px] text-[#8a8a8a]">{session.user.email}</p>}
                         </div>
                         <button
-                          onClick={() => { setAcctMenu(false); signOut(); }}
+                          onClick={() => { setAcctMenu(false); handleLogout(); }}
                           className="block w-full px-4 py-2.5 text-left text-[12.5px] text-white/85 transition-colors hover:bg-white/[0.06] hover:text-white"
                         >
                           Sign out
@@ -1114,7 +1126,7 @@ export function MonacoHome() {
                           {session.user.email && <p className="truncate text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
                         </div>
                         <button
-                          onClick={() => signOut()}
+                          onClick={handleLogout}
                           className="shrink-0 rounded-full border border-white/15 bg-white/[0.06] px-6 py-2 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
                         >
                           Log out
