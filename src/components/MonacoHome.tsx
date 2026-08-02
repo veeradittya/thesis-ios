@@ -26,6 +26,7 @@ import { ContextMenu, type MenuItem } from "@/components/ContextMenu";
 import { EventDetailCard, type EventStub } from "@/components/EventDetailCard";
 import { SearchCard, type SearchMode } from "@/components/SearchCard";
 import { DashboardTabs, type DashTab } from "@/components/DashboardTabs";
+import { PortfolioOverview } from "@/components/PortfolioOverview";
 import { demoPortfolio, type ParsedPortfolio } from "@/lib/parsePortfolio";
 import { ensureMarkets } from "@/lib/marketsStore";
 import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
@@ -315,7 +316,7 @@ export function MonacoHome() {
     } catch {}
   }, []);
   // Contract map between our internal Dashboard sub-tab ids and the native slider's strings.
-  const DASH_TO_NATIVE: Record<DashTab, "analyst" | "news" | "markets"> = { extra: "analyst", news: "news", markets: "markets" };
+  const DASH_TO_NATIVE: Record<DashTab, "overview" | "analyst" | "news" | "markets"> = { overview: "overview", extra: "analyst", news: "news", markets: "markets" };
   // Inbound bridge: let the native bars drive our tab state (no reload). Defined only in native mode.
   useEffect(() => {
     if (!nativeChrome || typeof window === "undefined") return;
@@ -324,7 +325,7 @@ export function MonacoHome() {
       if (tab === "brief" || tab === "dashboard" || tab === "portfolio" || tab === "account") setMobilePage(tab);
     };
     w.__thesisSetDashTab = (sub) => {
-      const map: Record<string, DashTab> = { analyst: "extra", news: "news", markets: "markets" };
+      const map: Record<string, DashTab> = { overview: "overview", analyst: "extra", news: "news", markets: "markets" };
       if (map[sub]) setDashTab(map[sub]);
     };
     return () => { delete w.__thesisSetTab; delete w.__thesisSetDashTab; };
@@ -1321,6 +1322,9 @@ export function MonacoHome() {
               {/* Native shell draws its own Dashboard slider at the top; hide ours there. */}
               {!nativeChrome && <DashboardTabs active={dashTab} onChange={setDashTab} />}
               <>
+
+              {/* Overview — portfolio allocation + efficient frontier + correlations + a model read. */}
+              {dashTab === "overview" && <PortfolioOverview holdings={ledger.holdings} user={userId ?? undefined} />}
 
               {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
                   opens the article as a blurred full-screen overlay (rendered below), not inline. */}

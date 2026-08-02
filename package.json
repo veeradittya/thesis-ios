@@ -22,7 +22,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-plaid-link": "^4.1.1",
-    "recharts": "^3.10.1",
+    "recharts": "^2.15.4",
     "tailwind-merge": "^3.6.0",
     "thinking-orbs": "^0.1.1",
     "three": "^0.185.1",

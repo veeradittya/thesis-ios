@@ -46,12 +46,34 @@ last_reviewed_at, last_alerted_at; PK (user_id,ticker))` (**Thesis Watch** — t
 user's per-stock investment thesis: it decomposes `holdings.thesis` into load-bearing assumptions + leading
 indicators, checks them daily, and grades `status` intact|watch|stressed. The brief mentions a thesis ONLY when
 it's under stress — silence means intact. Separate from `holdings` on purpose: `holdings` is `INSERT OR REPLACE`d
-on every ledger sync, so agent-owned thesis state must not live there).
+on every ledger sync, so agent-owned thesis state must not live there), `portfolio_analytics(user_id PK,
+analytics, ai_overview, updated_at)` (**Overview tab** — the app writes `analytics`, a JSON snapshot of the
+portfolio's modern-portfolio-theory model, on every ledger edit; the agent reads it and writes `ai_overview`,
+the plain-language read shown atop the Overview tab. See the Overview section below).
 
-**Data flow:** ledger edit → `/api/portfolio/sync` → `holdings`; the agent reads `holdings` and writes
-`assets` + `portfolios`; card → `/api/monitor?user=<scope>` → `getLatestMonitor()` (joins a portfolio's
-holdings to the shared `assets` and reads its memo) → card, which caches the payload in localStorage and
-re-renders only on change. Server-side Turso access lives in `src/lib/turso.ts` (HTTP pipeline API, no deps).
+**Data flow:** ledger edit → `/api/portfolio/sync` → `holdings` **and** `portfolio_analytics.analytics` (the
+route recomputes the MPT model via `computeFrontier` and stores it); the agent reads `holdings` +
+`portfolio_analytics.analytics` and writes `assets` + `portfolios` + `portfolio_analytics.ai_overview`; the
+Daily Briefing card → `/api/monitor?user=<scope>` → `getLatestMonitor()` (joins a portfolio's holdings to the
+shared `assets` and reads its memo); the Overview tab → `/api/portfolio-analytics?user=<scope>` →
+`getPortfolioAnalytics()` (the agent's `ai_overview`, with the client falling back to a deterministic read when
+absent). Cards cache their payload in localStorage and re-render only on change. Server-side Turso access lives
+in `src/lib/turso.ts` (HTTP pipeline API, no deps).
+
+## Overview tab — the modern-portfolio-theory page (per-user)
+The **Overview** sub-tab of the dashboard (`src/components/PortfolioOverview.tsx`, first dash tab) is a pure
+client-side render of Markowitz mean-variance theory over the ledger's **weights**: an allocation ring
+(asset/sector), a Markowitz efficient frontier (pinch-zoomable), per-asset expected-return/risk/Sharpe, and a
+correlation matrix — all computed by `src/lib/portfolioTheory.ts` (`computeFrontier`). The math runs off asset
+**weights only** (no shares/price); the illustrative per-asset return/vol/correlation assumptions are
+deterministic stand-ins the agent refines. Guests see the fixed demo; signed-in users see their own holdings.
+The short plain-language read at the top comes from the agent (`portfolio_analytics.ai_overview`) when present,
+else the deterministic `interpretation()` in `portfolioTheory.ts`. **Weight-only model:** every holding carries
+a weight (a percent, stored as a 0..1 fraction) — it is the single per-holding input in onboarding and both
+editors (`PortfolioLedger.tsx` mobile, `LedgerCard.tsx` desktop); shares/price were removed from the manual
+editors (xlsx uploads may still carry them). To regenerate the agent's overview end-to-end the CMA agent's
+system prompt (`prompts/thesis-risk-analyst.system.md`) must be redeployed — see that file's PORTFOLIO
+ANALYTICS section; deploy via `POST /v1/agents/{id}` then repoint the deployment (same flow as any prompt edit).
 
 **Ops:** deployment `depl_01J7Jbyi6VZ8fPNs4xfPH4q6`, agent `agent_01QS4br175KMQzgP9h7Rzyir` (memory store +
 vault are bound at the deployment). The agent's behaviour *is* its system prompt — edit via

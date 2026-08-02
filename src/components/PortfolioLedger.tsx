@@ -17,14 +17,6 @@ import { BorderBeam } from "border-beam";
 // Edits commit to the parent ledger via onChange, so the rest of the dashboard + the daily-briefing
 // agent read the same holdings. (Desktop keeps the movable LedgerCard.)
 
-const fmtUSD = (v: number | null): string => {
-  if (v == null) return "—";
-  const a = Math.abs(v);
-  if (a >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
-  if (a >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-  if (a >= 1e3) return `$${Math.round(v).toLocaleString("en-US")}`;
-  return `$${v.toFixed(2)}`;
-};
 const numOrNull = (s: string): number | null => {
   const t = s.replace(/[,$\s]/g, "");
   if (!t) return null;
@@ -36,19 +28,19 @@ const fmtPrice = (v: number | null) => (v == null ? "—" : v.toFixed(2));
 const fmtPct = (v: number | null) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
 interface Quote { price: number | null; percent: number | null; flashDir: "up" | "down" | null; flashTs: number }
 
-// Draft rows keep raw input strings so partial numbers ("12.") type cleanly.
-interface DraftRow { ticker: string; name: string; shares: string; price: string; thesis: string }
+// Draft rows keep raw input strings so partial numbers ("12.") type cleanly. Weight is the ONLY
+// per-holding number now — a percent (0..100); shares/price are gone from the editor.
+interface DraftRow { ticker: string; name: string; weight: string; thesis: string }
 const toDraft = (h: ParsedHolding): DraftRow => ({
   ticker: h.ticker,
   name: h.name === h.ticker ? "" : h.name,
-  shares: h.shares != null ? String(h.shares) : "",
-  price: h.price != null ? String(h.price) : "",
+  weight: h.weight != null ? String(+(h.weight * 100).toFixed(2)) : "", // fraction → percent
   thesis: h.thesis || "",
 });
 function rebuild(base: ParsedPortfolio, rows: DraftRow[]): ParsedPortfolio {
   const holdings = rows
     .filter((r) => r.ticker.trim() || r.name.trim())
-    .map((r) => makeHolding(r.ticker, r.name, numOrNull(r.shares), numOrNull(r.price), r.thesis));
+    .map((r) => makeHolding(r.ticker, r.name, numOrNull(r.weight), r.thesis));
   const { totalValue } = normalizeLedger(holdings);
   return { ...base, holdings, totalValue, rowCount: holdings.length };
 }
@@ -80,7 +72,7 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, re
 
   // Re-seed from the parent when the ledger changes externally (initial load, sign-in swap) — but
   // never while a holding is open for editing (that would clobber in-progress input).
-  const sig = data.holdings.map((h) => `${h.ticker}:${h.shares}:${h.price}:${h.thesis || ""}`).join("|");
+  const sig = data.holdings.map((h) => `${h.ticker}:${h.weight}:${h.thesis || ""}`).join("|");
   useEffect(() => {
     if (expanded == null) setRows(data.holdings.map(toDraft));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -96,15 +88,15 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, re
     if (readOnly) return;
     const t = ticker.trim().toUpperCase();
     if (!t || rows.some((r) => r.ticker.trim().toUpperCase() === t)) return;
-    const next = [...rows, { ticker: t, name: name && name.toUpperCase() !== t ? name : "", shares: "", price: "", thesis: "" }];
+    const next = [...rows, { ticker: t, name: name && name.toUpperCase() !== t ? name : "", weight: "", thesis: "" }];
     setRows(next);
     commit(next);
   };
 
-  // Live value/weight from the drafts, so the editor stays consistent while typing.
-  const vals = rows.map((r) => { const s = numOrNull(r.shares), p = numOrNull(r.price); return s != null && p != null ? s * p : null; });
-  const total = vals.some((v) => v != null) ? vals.reduce<number>((a, v) => a + (v || 0), 0) : null;
-  const weightPct = (i: number) => (total && vals[i] != null ? (vals[i]! / total) * 100 : null);
+  // Weight is entered directly (percent). Surface each row's entered weight + the running portfolio
+  // total so the editor can flag under/over-allocation while typing.
+  const weightPct = (i: number) => numOrNull(rows[i].weight);
+  const totalPct = rows.reduce<number>((a, r) => a + (numOrNull(r.weight) || 0), 0);
 
   // Live prices for each holding. No interval polling — we fetch once on load (seeded instantly from
   // the local cache) and again on pull-to-refresh (refreshSignal bumps). When a fetch brings a NEW
@@ -422,7 +414,7 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, re
             uid={id}
             row={rows[expanded]}
             weightPct={weightPct(expanded)}
-            value={vals[expanded]}
+            totalPct={totalPct}
             onField={(patch) => setRow(expanded, patch)}
             onCommit={() => commit(rows)}
             onRemove={() => removeRow(expanded)}
@@ -498,13 +490,13 @@ function SwipeRow({ children, onRemove, onOpen }: { children: ReactNode; onRemov
 }
 
 function ExpandedEditor({
-  index, uid, row, weightPct, value, onField, onCommit, onRemove, onClose,
+  index, uid, row, weightPct, totalPct, onField, onCommit, onRemove, onClose,
 }: {
   index: number;
   uid: string;
   row: DraftRow;
-  weightPct: number | null;
-  value: number | null;
+  weightPct: number | null; // this holding's entered weight (percent)
+  totalPct: number; // sum of all holdings' entered weights (percent)
   onField: (patch: Partial<DraftRow>) => void;
   onCommit: () => void;
   onRemove: () => void;
@@ -612,23 +604,25 @@ function ExpandedEditor({
               )}
             </div>
 
-            {/* shares + purchase price (editable) */}
-            <div className="mt-3 grid grid-cols-2 gap-2.5">
-              <label className="block">
-                <span className={label}>Shares</span>
-                <input value={row.shares} onChange={(e) => onField({ shares: e.target.value })} onBlur={onCommit} inputMode="decimal" placeholder="0" className={`${field} tabular-nums`} />
-              </label>
-              <label className="block">
-                <span className={label}>Purchase price</span>
-                <input value={row.price} onChange={(e) => onField({ price: e.target.value })} onBlur={onCommit} inputMode="decimal" placeholder="$0.00" className={`${field} tabular-nums`} />
-              </label>
-            </div>
+            {/* weight — the single per-holding input (percent of the portfolio) */}
+            <label className="mt-3 block">
+              <span className={label}>Weight</span>
+              <div className="relative">
+                <input value={row.weight} onChange={(e) => onField({ weight: e.target.value })} onBlur={onCommit} inputMode="decimal" placeholder="0" className={`${field} tabular-nums pr-8`} />
+                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[15px] text-white/40">%</span>
+              </div>
+            </label>
 
-            {/* value (auto-computed, read-only) */}
-            <div className="mt-2.5 rounded-lg bg-white/[0.02] px-3 py-2">
-              <span className={label}>Value</span>
-              <span className="block text-[16px] font-medium tabular-nums text-white">{fmtUSD(value)}</span>
-            </div>
+            {/* portfolio allocation helper — running total across all holdings, flags over/under 100% */}
+            <p className="mt-2 text-[12px] leading-snug text-[#8a8a8a]">
+              Portfolio allocated:{" "}
+              <span className={cn("tabular-nums", totalPct > 100.5 ? "text-rose-300" : "text-white/70")}>{totalPct.toFixed(0)}%</span>
+              {Math.abs(totalPct - 100) > 0.5 && (
+                <span className={totalPct > 100.5 ? "text-rose-300/80" : ""}>
+                  {" "}· {totalPct > 100 ? `over by ${(totalPct - 100).toFixed(0)}%` : `${(100 - totalPct).toFixed(0)}% unallocated`}
+                </span>
+              )}
+            </p>
 
             {/* thesis */}
             <label className="mt-3 block">

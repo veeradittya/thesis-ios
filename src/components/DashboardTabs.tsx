@@ -4,9 +4,10 @@ import { motion } from "motion/react";
 
 // Phone-only Dashboard sub-tabs. A Transitions.dev-style sliding pill (the selected
 // tab's fill glides between tabs) sitting on a liquid-glass bar that matches the nav.
-export type DashTab = "news" | "markets" | "extra";
+export type DashTab = "overview" | "news" | "markets" | "extra";
 
 const TABS: { id: DashTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
   { id: "extra", label: "Analyst Sentiment" },
   { id: "news", label: "News" },
   { id: "markets", label: "Prediction Markets" },
@@ -14,10 +15,11 @@ const TABS: { id: DashTab; label: string }[] = [
 
 export function DashboardTabs({ active, onChange }: { active: DashTab; onChange: (t: DashTab) => void }) {
   return (
-    <div className="flex justify-center">
+    // Horizontally scrollable so the four tabs never clip on a narrow phone; centered when they fit.
+    <div className="no-scrollbar flex overflow-x-auto">
       <div
         role="tablist"
-        className="relative inline-flex items-center gap-[3px] rounded-full p-[3px]"
+        className="relative mx-auto inline-flex items-center gap-[3px] rounded-full p-[3px]"
         style={{
           // Same frosted glass as the floating nav (translucent grey + heavy blur).
           backgroundColor: "#3a3a3a66",

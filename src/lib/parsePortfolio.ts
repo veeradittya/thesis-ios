@@ -187,9 +187,12 @@ export async function parsePortfolioFile(file: File): Promise<ParsedPortfolio> {
   return parsePortfolioBuffer(await file.arrayBuffer(), file.name);
 }
 
-// Recompute derived fields in place (value ← shares×price when missing, totalValue, weights,
-// value-desc sort). Shared by the xlsx parser and the manual ledger editor so both agree.
-// A ledger with no values stays a plain asset list (totalValue null, weights left as-is).
+// Recompute derived fields in place. Two ledger shapes flow through here:
+//  • valued ledgers (xlsx upload with shares/price/value): value ← shares×price when missing,
+//    totalValue = Σ value, weights ← value / totalValue, sorted value-desc.
+//  • weight-only ledgers (the manual editor + weight-column uploads): no dollar values at all —
+//    weights are entered directly as fractions, so we just sort weight-desc and leave totalValue null.
+// Shared by the xlsx parser and the manual editor so both agree.
 export function normalizeLedger(holdings: ParsedHolding[]): { holdings: ParsedHolding[]; totalValue: number | null } {
   for (const h of holdings) {
     if (h.value == null && h.shares != null && h.price != null) h.value = h.shares * h.price;
@@ -197,8 +200,10 @@ export function normalizeLedger(holdings: ParsedHolding[]): { holdings: ParsedHo
   const totalValue = holdings.some((h) => h.value != null) ? holdings.reduce((s, h) => s + (h.value || 0), 0) : null;
   if (totalValue && totalValue > 0) {
     for (const h of holdings) h.weight = h.value != null ? h.value / totalValue : null;
+    holdings.sort((a, b) => (b.value || 0) - (a.value || 0));
+  } else {
+    holdings.sort((a, b) => (b.weight || 0) - (a.weight || 0));
   }
-  holdings.sort((a, b) => (b.value || 0) - (a.value || 0));
   return { holdings, totalValue };
 }
 
@@ -233,23 +238,25 @@ export function demoPortfolio(name = "Demo Portfolio"): ParsedPortfolio {
   return { fileName: "", portfolioName: name, sheetName: "", rowCount: holdings.length, totalValue, holdings, mappedColumns: {} };
 }
 
-// Build a normalized holding from manual editor fields (blank/invalid numbers → null).
+// Build a holding from the manual editor's fields. The editor is weight-only now: the user gives a
+// percent (0..100) per asset; we store it as a fraction (0..1). Shares/price/value are always null
+// from the editor (they only ever come from an xlsx upload). Blank/invalid weight → null.
 export function makeHolding(
   ticker: string,
   name: string,
-  shares?: number | null,
-  price?: number | null,
+  weightPct?: number | null,
   thesis?: string | null,
 ): ParsedHolding {
   const t = ticker.trim().toUpperCase();
   const th = (thesis || "").trim();
+  const weight = weightPct != null && Number.isFinite(weightPct) ? weightPct / 100 : null;
   return {
     ticker: t,
     name: name.trim() || t,
-    shares: shares != null && Number.isFinite(shares) ? shares : null,
-    price: price != null && Number.isFinite(price) ? price : null,
+    shares: null,
+    price: null,
     value: null,
-    weight: null,
+    weight,
     gain: null,
     thesis: th || undefined,
   };

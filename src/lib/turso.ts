@@ -159,6 +159,40 @@ export async function syncHoldings(
   return n;
 }
 
+// Per-portfolio modern-portfolio-theory analytics (efficient frontier, per-asset return/risk/Sharpe,
+// correlations, min-variance + tangency portfolios) — computed by the app whenever holdings change and
+// stored so the daily CMA agent can READ them and reason over them. The agent writes the plain-language
+// `ai_overview` back into the SAME row; the app-side write below never clobbers it (ON CONFLICT preserves).
+export async function setPortfolioAnalytics(userId: string, analytics: unknown): Promise<void> {
+  const now = new Date().toISOString();
+  await pipeline([
+    { type: "execute", stmt: { sql: "CREATE TABLE IF NOT EXISTS portfolio_analytics (user_id TEXT PRIMARY KEY, analytics TEXT, ai_overview TEXT, updated_at TEXT)", args: [] } },
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO portfolio_analytics (user_id, analytics, updated_at) VALUES (?, ?, ?)
+              ON CONFLICT(user_id) DO UPDATE SET analytics = excluded.analytics, updated_at = excluded.updated_at`,
+        args: [typed(userId), typed(analytics == null ? null : JSON.stringify(analytics)), typed(now)],
+      },
+    },
+  ]);
+}
+
+// Read a portfolio's stored analytics + the agent's ai_overview. Returns null if the table/row don't
+// exist yet (no sync has happened) so callers fall back to computing client-side.
+export async function getPortfolioAnalytics(
+  userId: string,
+): Promise<{ analytics: unknown; aiOverview: string | null; updatedAt: string | null } | null> {
+  try {
+    const rows = await query("SELECT analytics, ai_overview, updated_at FROM portfolio_analytics WHERE user_id=?", [userId]);
+    if (!rows.length) return null;
+    const r = rows[0];
+    return { analytics: r.analytics ? JSON.parse(r.analytics) : null, aiOverview: r.ai_overview ?? null, updatedAt: r.updated_at ?? null };
+  } catch {
+    return null; // table may not exist yet
+  }
+}
+
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
 // sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
 // new user?" signal and powers the backend monitoring of who has signed in.

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { syncHoldings, getHoldings } from "@/lib/turso";
+import { syncHoldings, getHoldings, setPortfolioAnalytics } from "@/lib/turso";
+import { computeFrontier } from "@/lib/portfolioTheory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,14 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as {
       holdings?: Array<{ ticker: string; name?: string | null; weight?: number | null; thesis?: string | null }>;
     };
-    const count = await syncHoldings(userId, Array.isArray(body.holdings) ? body.holdings : []);
+    const holdings = Array.isArray(body.holdings) ? body.holdings : [];
+    const count = await syncHoldings(userId, holdings);
+    // Recompute + store the modern-portfolio-theory analytics so the daily agent can read them and write
+    // its overview. Best-effort — a failure here must never block the holdings sync. (null when <2 assets.)
+    try {
+      const analytics = computeFrontier(holdings.map((h) => ({ ticker: h.ticker, weight: h.weight ?? null })));
+      await setPortfolioAnalytics(userId, analytics);
+    } catch {}
     return NextResponse.json({ ok: true, count });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "sync failed" }, { status: 502 });

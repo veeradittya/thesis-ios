@@ -20,17 +20,14 @@ function fmtUSD(v: number | null): string {
   if (a >= 1e3) return `$${Math.round(v).toLocaleString("en-US")}`;
   return `$${v.toFixed(2)}`;
 }
-function fmtShares(v: number | null): string {
-  if (v == null) return "";
-  return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
-}
 function monogram(s: string): string {
   const t = s.replace(/[^A-Za-z0-9]/g, "");
   return (t.slice(0, 2) || "?").toUpperCase();
 }
 
-// Draft rows keep raw input strings so partial numbers ("12.") type cleanly.
-interface DraftRow { ticker: string; name: string; shares: string; price: string; thesis: string }
+// Draft rows keep raw input strings so partial numbers ("12.") type cleanly. Weight (a percent) is the
+// only per-holding number now — shares/price are gone from the editor.
+interface DraftRow { ticker: string; name: string; weight: string; thesis: string }
 const numOrNull = (s: string): number | null => {
   const t = s.replace(/[,$\s]/g, "");
   if (!t) return null;
@@ -40,14 +37,13 @@ const numOrNull = (s: string): number | null => {
 const toDraft = (h: ParsedHolding): DraftRow => ({
   ticker: h.ticker,
   name: h.name === h.ticker ? "" : h.name,
-  shares: h.shares != null ? String(h.shares) : "",
-  price: h.price != null ? String(h.price) : "",
+  weight: h.weight != null ? String(+(h.weight * 100).toFixed(2)) : "", // fraction → percent
   thesis: h.thesis || "",
 });
 function rebuild(base: ParsedPortfolio, rows: DraftRow[]): ParsedPortfolio {
   const holdings = rows
     .filter((r) => r.ticker.trim() || r.name.trim())
-    .map((r) => makeHolding(r.ticker, r.name, numOrNull(r.shares), numOrNull(r.price), r.thesis));
+    .map((r) => makeHolding(r.ticker, r.name, numOrNull(r.weight), r.thesis));
   const { totalValue } = normalizeLedger(holdings);
   return { ...base, holdings, totalValue, rowCount: holdings.length };
 }
@@ -87,7 +83,7 @@ export function LedgerCard({
   };
   const commit = (nextRows: DraftRow[], name = nameDraft) => onChange?.({ ...rebuild(data, nextRows), portfolioName: name.trim() || "My Portfolio" });
   const setRow = (i: number, patch: Partial<DraftRow>) => setRows((prev) => prev.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const addRow = () => setRows((prev) => [...prev, { ticker: "", name: "", shares: "", price: "", thesis: "" }]);
+  const addRow = () => setRows((prev) => [...prev, { ticker: "", name: "", weight: "", thesis: "" }]);
   const removeRow = (i: number) => { const next = rows.filter((_, j) => j !== i); setRows(next); commit(next); };
   const noop = (e: React.PointerEvent) => e.stopPropagation(); // keep header controls from starting a drag
 
@@ -184,24 +180,19 @@ export function LedgerCard({
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
                   </button>
                 </div>
-                {/* line 2 — optional size + avg price */}
+                {/* line 2 — weight (percent of the portfolio) */}
                 <div className="mt-1.5 flex items-center gap-1.5">
-                  <input
-                    value={r.shares}
-                    onChange={(e) => setRow(i, { shares: e.target.value })}
-                    onBlur={() => commit(rows)}
-                    inputMode="decimal"
-                    placeholder="Size (shares)"
-                    className="min-w-0 flex-1 rounded-md bg-white/[0.04] px-2 py-1 text-[11.5px] tabular-nums text-white/85 outline-none ring-1 ring-white/10 placeholder:text-[#5a5a5a] focus:ring-white/25"
-                  />
-                  <input
-                    value={r.price}
-                    onChange={(e) => setRow(i, { price: e.target.value })}
-                    onBlur={() => commit(rows)}
-                    inputMode="decimal"
-                    placeholder="Avg price $"
-                    className="min-w-0 flex-1 rounded-md bg-white/[0.04] px-2 py-1 text-[11.5px] tabular-nums text-white/85 outline-none ring-1 ring-white/10 placeholder:text-[#5a5a5a] focus:ring-white/25"
-                  />
+                  <div className="relative min-w-0 flex-1">
+                    <input
+                      value={r.weight}
+                      onChange={(e) => setRow(i, { weight: e.target.value })}
+                      onBlur={() => commit(rows)}
+                      inputMode="decimal"
+                      placeholder="Weight"
+                      className="w-full rounded-md bg-white/[0.04] px-2 py-1 pr-7 text-[11.5px] tabular-nums text-white/85 outline-none ring-1 ring-white/10 placeholder:text-[#5a5a5a] focus:ring-white/25"
+                    />
+                    <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11.5px] text-white/40">%</span>
+                  </div>
                   <span className="w-[21px] shrink-0" aria-hidden />
                 </div>
                 {/* line 3 — optional thesis / reason-for-holding (drives the Thesis Monitor) */}
@@ -232,8 +223,8 @@ export function LedgerCard({
           </div>
         ) : (
           data.holdings.map((h, i) => {
-            const sub = h.name && h.name !== h.ticker ? h.name : h.shares != null ? `${fmtShares(h.shares)} shares` : "";
-            const right2 = h.weight != null ? `${(h.weight * 100).toFixed(1)}%` : h.shares != null ? `${fmtShares(h.shares)} sh` : "";
+            const sub = h.name && h.name !== h.ticker ? h.name : "";
+            const weightStr = h.weight != null ? `${(h.weight * 100).toFixed(1)}%` : "";
             return (
               <div key={`${h.ticker}-${i}`} className="flex items-center gap-3 border-t border-white/[0.06] py-2.5 first:border-t-0">
                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[9px] bg-[#1a1a1a] text-[10px] font-medium text-[#cdcdcd]">
@@ -244,8 +235,11 @@ export function LedgerCard({
                   {sub && <p className="truncate text-[11.5px] text-[#8a8a8a]">{sub}</p>}
                 </div>
                 <div className="shrink-0 text-right">
+                  {/* valued ledgers (xlsx) show $ with weight beneath; weight-only ledgers show weight as the headline */}
                   {h.value != null && <p className="text-[13px] tabular-nums text-white">{fmtUSD(h.value)}</p>}
-                  {right2 && <p className="text-[11px] tabular-nums text-[#8a8a8a]">{right2}</p>}
+                  {weightStr && (
+                    <p className={h.value != null ? "text-[11px] tabular-nums text-[#8a8a8a]" : "text-[14px] tabular-nums text-white"}>{weightStr}</p>
+                  )}
                 </div>
               </div>
             );
