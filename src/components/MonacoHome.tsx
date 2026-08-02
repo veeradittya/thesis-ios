@@ -33,6 +33,7 @@ import { PullToRefresh } from "@/components/PullToRefresh";
 import { ThesisIntro } from "@/components/ThesisIntro";
 import { SignupScreen, DEV_SKIP_AUTH } from "@/components/SignupScreen";
 import { Onboarding } from "@/components/Onboarding";
+import { FirstBriefWaiting } from "@/components/FirstBriefWaiting";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -292,6 +293,8 @@ export function MonacoHome() {
   const [signupReady, setSignupReady] = useState(false); // sign-up gate waits 7s so a guest can explore first
   const [onboarding, setOnboarding] = useState(false); // new-user onboarding wizard (post sign-in / ?onboard=1)
   const [onboarded, setOnboarded] = useState(false); // completed onboarding → treat like a set-up account (editable portfolio)
+  const [awaitedAfterOnboard, setAwaitedAfterOnboard] = useState(false); // just finished onboarding → show the "first brief" countdown
+  const [firstBriefReady, setFirstBriefReady] = useState<boolean | null>(null); // has THIS account's first brief been generated? (null=unknown)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
   const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
   // Native iOS shell renders its OWN glass bottom-nav + Dashboard slider. It sets this flag before our JS
@@ -582,6 +585,24 @@ export function MonacoHome() {
   // the client fetches and how it caches it, never who the server reads/writes.
   const DEMO_USER = "pilot";
   const monitorUser = authed && userId ? userId : DEMO_USER;
+
+  // Has THIS signed-in account's first Daily Brief been generated yet? A brand-new account has none until
+  // the 8am ET agent runs — until then it sees the "first brief" countdown instead of the app. Poll so the
+  // screen clears itself the moment the brief lands. Guests/unknown stay null (their demo brief always exists).
+  useEffect(() => {
+    if (!authed || !userId) { setFirstBriefReady(null); return; }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const r = await fetch(`/api/monitor?user=${encodeURIComponent(userId)}`);
+        const j = (await r.json()) as { memo?: string | null; results?: unknown[] };
+        if (!cancelled) setFirstBriefReady(!!(j?.memo || (Array.isArray(j?.results) && j.results.length)));
+      } catch { if (!cancelled) setFirstBriefReady((v) => v ?? false); }
+    };
+    check();
+    const id = setInterval(check, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [authed, userId]);
 
   // Prefetch Asset Related Markets as soon as the ledger is ready — regardless of which page/tab is
   // showing — so opening the Markets tab paints from the shared cache instead of the "Scanning live
@@ -890,6 +911,15 @@ export function MonacoHome() {
   // chrome (the floating pill + the DashboardTabs slider). Desktop / mobile-web keep them.
   const hideWebChrome = isMobile && nativeChrome;
 
+  // The "first brief" countdown takes over the whole app for a brand-new account until its first brief is
+  // generated. Show it (a) right after onboarding (covers the local ?onboard=1 preview too), or (b) on any
+  // load where a signed-in account has its own set-up portfolio but no brief yet — reload-safe, and it
+  // clears itself when the monitor poll reports the brief has landed. `=== false` (not `!== true`) on the
+  // reload path so a returning user never flashes it while readiness is still unknown (null).
+  const hasOwnPortfolio = authed && ledgerScope === scope && !!ledger && ledger.holdings.some((h) => h.ticker);
+  const showFirstBriefWait =
+    (awaitedAfterOnboard && firstBriefReady !== true) || (hasOwnPortfolio && firstBriefReady === false);
+
   // Compact portfolio context handed to the chat assistant.
   const portfolioCtx = ledger
     ? `Portfolio "${ledger.portfolioName}". Holdings (ticker, weight): ${ledger.holdings
@@ -1118,10 +1148,13 @@ export function MonacoHome() {
           // resize and canvas interactions are disabled (StaticLayoutContext).
           <StaticLayoutContext.Provider value={true}>
             {mobilePage === "brief" ? (
-              // "Brief" tab — EXPERIMENT: the daily-brief text as a sticky-scroll reveal, one chunk at a
-              // time. Full-bleed (no top padding) so the text slides UNDER the liquid-glass nav. Swap
-              // back to <ThesisMonitorCard/> to revert.
-              <BriefReveal user={monitorUser} onCondense={setNavCondensed} />
+              // "Brief" tab — before the account's first brief exists, serve the waiting screen; otherwise
+              // the daily-brief sticky-scroll reveal. Full-bleed so the text slides UNDER the glass nav.
+              showFirstBriefWait ? (
+                <FirstBriefWaiting />
+              ) : (
+                <BriefReveal user={monitorUser} onCondense={setNavCondensed} />
+              )
             ) : mobilePage === "account" ? (
               acctDeleted ? (
                 // Post-deletion confirmation — the session is being cleared underneath this.
@@ -1253,9 +1286,12 @@ export function MonacoHome() {
                 </div>
               )
             ) : mobilePage === "portfolio" ? (
-              // "Portfolio" tab — the ledger embedded straight on the black background (no card):
-              // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
-              // Prices load once (from cache, then one fetch); pull down to refresh them.
+              // "Portfolio" tab — before the first brief exists, serve the waiting screen; otherwise the
+              // ledger embedded straight on the black background (no card): tap a holding to expand-edit
+              // it, swipe to remove. Drives every other card + the agent. Pull down to refresh prices.
+              showFirstBriefWait ? (
+                <FirstBriefWaiting />
+              ) : (
               <PullToRefresh onRefresh={refreshPrices}>
                 <div className={`px-4 pt-[calc(env(safe-area-inset-top)+16px)] ${nativeChrome ? "pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
                   <PortfolioLedger
@@ -1267,11 +1303,24 @@ export function MonacoHome() {
                   />
                 </div>
               </PullToRefresh>
+              )
+            ) : showFirstBriefWait ? (
+              // "Dashboard" tab, waiting — the sub-tab slider floats at the top (absolute) so the centered
+              // waiting block lands at the SAME viewport position as on Brief/Portfolio (no slider offset).
+              <div className="relative">
+                {!nativeChrome && (
+                  <div className="absolute inset-x-0 top-0 z-10 px-3.5 pt-[calc(env(safe-area-inset-top)+16px)]">
+                    <DashboardTabs active={dashTab} onChange={setDashTab} />
+                  </div>
+                )}
+                <FirstBriefWaiting />
+              </div>
             ) : (
-              // "Dashboard" tab — split into three sliding sub-tabs: News · Prediction Markets · Extra.
+              // "Dashboard" tab — the sub-tab slider over the three sliding sub-tabs of content.
               <div className={`flex flex-col gap-3.5 px-3.5 ${nativeChrome ? "pt-[calc(env(safe-area-inset-top)+64px)] pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pt-[calc(env(safe-area-inset-top)+16px)] pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
               {/* Native shell draws its own Dashboard slider at the top; hide ours there. */}
               {!nativeChrome && <DashboardTabs active={dashTab} onChange={setDashTab} />}
+              <>
 
               {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
                   opens the article as a blurred full-screen overlay (rendered below), not inline. */}
@@ -1404,6 +1453,7 @@ export function MonacoHome() {
                   <MobileDisclaimer />
                 </>
               )}
+                </>
               </div>
             )}
 
@@ -1510,7 +1560,8 @@ export function MonacoHome() {
             setLedgerScope(scope); // onboarding done → promote off the display-only sentinel so this account's portfolio persists + syncs to Turso
             setOnboarded(true); // holdings + theses now belong to a real (set-up) portfolio → editable, drives every card
             setOnboarding(false);
-            setMobilePage("brief"); // land on the daily briefing
+            setAwaitedAfterOnboard(true); // → the "first brief" countdown until their brief is generated
+            setMobilePage("brief"); // where they land once the countdown clears
             window.scrollTo({ top: 0 });
           }}
         />
