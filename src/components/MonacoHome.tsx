@@ -781,16 +781,29 @@ export function MonacoHome() {
     let cancelled = false;
     (async () => {
       if (authed && scope) {
-        try {
-          const saved = localStorage.getItem(acctLedgerKey(scope));
-          if (saved) {
-            const p = JSON.parse(saved);
-            if (!cancelled && p && Array.isArray(p.holdings)) { setLedger(p); setLedgerScope(scope); return; }
-          }
-        } catch {}
-        // No local copy on this device yet. Priority: (1) this account's server-side portfolio in
-        // Turso, so it follows the account across devices; (2) a guest-built portfolio to promote;
-        // (3) the retail demo (named after the user). Edits now persist to this account.
+        // Has this account been ACTIVATED (finished onboarding at least once)? Signals, cross-device:
+        //  • a beta code proves it by the display name restored from Turso — set ONLY by finishing
+        //    onboarding, so a brand-new code has no name and is NOT activated;
+        //  • every account also leaves a local per-account "seen" flag on the device it onboarded on.
+        // This matters because we seed a demo under a new account's scope below, which the persist effect
+        // caches. If we trusted that cache, a brand-new beta code would look "returning" on its 2nd visit
+        // and skip onboarding. So a not-yet-activated beta code NEVER uses the local cache — its new-vs-
+        // returning status is decided by the Turso portfolio. (Google/Apple keep the instant cache path.)
+        const isBeta = (userId ?? "").startsWith("beta_");
+        let seenLocal = false;
+        try { seenLocal = !!localStorage.getItem(onboardingSeenKey(userId)); } catch {}
+        const activated = seenLocal || (isBeta && !!firstName);
+        if (!isBeta || activated) {
+          try {
+            const saved = localStorage.getItem(acctLedgerKey(scope));
+            if (saved) {
+              const p = JSON.parse(saved);
+              if (!cancelled && p && Array.isArray(p.holdings)) { setLedger(p); setLedgerScope(scope); return; }
+            }
+          } catch {}
+        }
+        // This account's server-side portfolio in Turso — the source of truth that follows it across
+        // devices. Present → a returning account: load it and go straight to the app.
         try {
           const r = await fetch("/api/portfolio/sync");
           if (r.ok) {
@@ -808,17 +821,18 @@ export function MonacoHome() {
           }
         } catch {}
         if (cancelled) return;
-        // Nothing on the server → seed the demo as this account's starting point (named after the user).
-        // A signed-out guest's demo is NEVER promoted onto an account; portfolios belong to their owner.
+        // No portfolio anywhere → a NEW account. Run the whole onboarding flow (a new beta code always
+        // lands here). Seed the demo underneath as the starting point; a signed-out guest's demo is NEVER
+        // promoted onto an account.
         const seed = firstName ? { ...demoPortfolio(), portfolioName: firstName } : demoPortfolio();
-        if (!cancelled) { setLedger(seed); setLedgerScope(scope); }
+        // For a not-yet-activated account the seeded demo is DISPLAY-ONLY: park it under a sentinel scope
+        // so NEITHER the localStorage-persist NOR the Turso-sync effect mirrors it. Otherwise the demo is
+        // written to the account as if it were the user's own portfolio, and the account then looks
+        // "returning" — locally AND on the server (the cross-device source of truth) — on its next sign-in,
+        // skipping onboarding. Onboarding completion promotes the real portfolio to the account scope.
+        if (!cancelled) { setLedger(seed); setLedgerScope(activated ? scope : `seed:${scope}`); }
         try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {} // retire any stale guest ledger
-        // New user: signed in with no portfolio anywhere and onboarding never completed on this device →
-        // first-time account, so run the onboarding wizard. Returning users load from Turso above (early
-        // return) and skip this. Skipped under DEV_FORCE_LOGIN so the dev login lands in the app.
-        if (!cancelled && !DEV_FORCE_LOGIN) {
-          try { if (!localStorage.getItem(onboardingSeenKey(userId))) setOnboarding(true); } catch {}
-        }
+        if (!cancelled && !activated && !DEV_FORCE_LOGIN) setOnboarding(true);
       } else {
         // Signed out → ALWAYS the fixed, read-only demo. Nothing a guest does persists, and any stale
         // guest ledger from an older build is cleared, so the demo can never drift between visitors/visits.
@@ -1493,6 +1507,7 @@ export function MonacoHome() {
               void updateSession?.({ name: nm })?.catch(() => {});
             }
             if (profile.ledger) setLedger(profile.ledger);
+            setLedgerScope(scope); // onboarding done → promote off the display-only sentinel so this account's portfolio persists + syncs to Turso
             setOnboarded(true); // holdings + theses now belong to a real (set-up) portfolio → editable, drives every card
             setOnboarding(false);
             setMobilePage("brief"); // land on the daily briefing
