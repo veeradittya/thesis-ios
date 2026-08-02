@@ -4,7 +4,8 @@ import Apple from "next-auth/providers/apple";
 import Credentials from "next-auth/providers/credentials";
 import { verifyGoogleIdToken } from "@/lib/googleVerify";
 import { verifyAppleIdentityToken } from "@/lib/appleVerify";
-import { recordSignIn, logActivity, getCanonicalUserId } from "@/lib/turso";
+import { recordSignIn, logActivity, getCanonicalUserId, getUserName } from "@/lib/turso";
+import { isValidBetaCode, betaUserId } from "@/lib/betaCodes";
 
 // Auth.js (NextAuth v5) — Google + Apple sign-in with stateless JWT sessions (no DB yet).
 // Google auto-reads AUTH_GOOGLE_ID / AUTH_GOOGLE_SECRET; Apple auto-reads AUTH_APPLE_ID (the
@@ -56,6 +57,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         return { id: id.sub, email: email ?? undefined, name };
       },
     }),
+    // Beta-code sign-in — the private beta group signs in with an allowlisted code instead of a
+    // Google/Apple account. A code maps to a STABLE id (beta_<CODE>), so the SAME code always resolves
+    // to the SAME account: a brand-new code has no Turso portfolio yet → the app runs onboarding; an
+    // already-used code loads that account's portfolio + the display name chosen during onboarding.
+    // Codes are validated server-side (never shipped to the client); see src/lib/betaCodes.ts.
+    Credentials({
+      id: "beta-code",
+      name: "Beta code",
+      credentials: { code: { label: "Beta code", type: "text" } },
+      async authorize(creds) {
+        const code = typeof creds?.code === "string" ? creds.code : "";
+        if (!isValidBetaCode(code)) return null;
+        const id = betaUserId(code);
+        // Restore the name this code chose during onboarding (null until they finish it the first time).
+        let name: string | undefined;
+        try { name = (await getUserName(id)) ?? undefined; } catch { /* name is best-effort */ }
+        return { id, name, email: undefined };
+      },
+    }),
   ],
   session: { strategy: "jwt" },
   trustHost: true, // self-hosted (localhost and any non-Vercel host)
@@ -64,7 +84,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     // (JWT strategy, no DB adapter) mints a fresh random UUID for `token.sub` on every new
     // session/device, so the same Google account would fragment into many "users" — one per sign-in.
     // `profile` is only present on the initial sign-in; afterwards the pinned value rides in the JWT.
-    async jwt({ token, profile, user }) {
+    async jwt({ token, profile, user, trigger, session }) {
+      // Client-initiated session.update({ name }) — after a beta (or any) user finishes onboarding, so
+      // their chosen name shows immediately in the current session without a re-login.
+      if (trigger === "update" && session && typeof (session as { name?: unknown }).name === "string") {
+        token.name = (session as { name: string }).name;
+        return token;
+      }
       if (profile?.sub) {
         token.sub = String(profile.sub);
         return token;

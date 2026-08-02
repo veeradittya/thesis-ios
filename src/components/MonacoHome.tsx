@@ -37,6 +37,10 @@ import { Onboarding } from "@/components/Onboarding";
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
 const acctLedgerKey = (scope: string) => `thesis.${scope}.ledger.v2`;
+// "Has this account finished onboarding on this device?" — keyed PER ACCOUNT (not global) so a new beta
+// code onboards even on a device where a different account onboarded before. The real new-vs-returning
+// signal is the account's Turso portfolio; this only guards a user who onboarded but built no holdings.
+const onboardingSeenKey = (uid: string | null) => `thesis.onboarding.v1.${uid ?? "local"}`;
 import type { NewsItem } from "@/lib/guardian";
 import type { MarketLite } from "@/lib/oddpool";
 
@@ -264,7 +268,7 @@ export function MonacoHome() {
   };
 
   // Auth (Google sign-in) + the account dropdown.
-  const { data: sessionData, status: sessionStatus } = useSession();
+  const { data: sessionData, status: sessionStatus, update: updateSession } = useSession();
   // DEV ONLY (auto-off in production builds): land straight in the signed-in app without OAuth so the
   // logged-in UI can be worked on. Synthesizes an authenticated session over the demo scope ("pilot"), so
   // the brief + portfolio show demo content but in editable / "my account" mode. A real sign-in still
@@ -813,7 +817,7 @@ export function MonacoHome() {
         // first-time account, so run the onboarding wizard. Returning users load from Turso above (early
         // return) and skip this. Skipped under DEV_FORCE_LOGIN so the dev login lands in the app.
         if (!cancelled && !DEV_FORCE_LOGIN) {
-          try { if (!localStorage.getItem("thesis.onboarding.v1")) setOnboarding(true); } catch {}
+          try { if (!localStorage.getItem(onboardingSeenKey(userId))) setOnboarding(true); } catch {}
         }
       } else {
         // Signed out → ALWAYS the fixed, read-only demo. Nothing a guest does persists, and any stale
@@ -1479,8 +1483,15 @@ export function MonacoHome() {
           onClose={() => setOnboarding(false)}
           onComplete={(profile) => {
             try {
-              localStorage.setItem("thesis.onboarding.v1", JSON.stringify({ ...profile, holdings: undefined }));
+              localStorage.setItem(onboardingSeenKey(userId), JSON.stringify({ ...profile, holdings: undefined }));
             } catch {}
+            // Persist the chosen name to the account so a later sign-in (esp. a beta code, which has no
+            // OAuth name) retrieves it, and reflect it in the current session immediately.
+            const nm = profile.name.trim();
+            if (nm && authed) {
+              fetch("/api/profile/name", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: nm }) }).catch(() => {});
+              void updateSession?.({ name: nm })?.catch(() => {});
+            }
             if (profile.ledger) setLedger(profile.ledger);
             setOnboarded(true); // holdings + theses now belong to a real (set-up) portfolio → editable, drives every card
             setOnboarding(false);

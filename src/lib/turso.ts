@@ -181,6 +181,32 @@ export async function recordSignIn(userId: string, email: string | null, name: s
   ]);
 }
 
+// Read a user's stored display name (users.name). Used by the beta-code sign-in to restore the name a
+// tester chose during onboarding, so re-entering their code retrieves the same identity on any device.
+export async function getUserName(userId: string): Promise<string | null> {
+  const rows = await query("SELECT name FROM users WHERE user_id=?", [userId]);
+  return rows[0]?.name ?? null;
+}
+
+// Persist a user's chosen display name (from onboarding). Upsert so it works even if the sign-in row
+// wasn't written yet; keeps any existing email and bumps last_seen.
+export async function setUserName(userId: string, name: string): Promise<void> {
+  const now = new Date().toISOString();
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO users (user_id, email, name, first_seen, last_seen, sign_in_count)
+              VALUES (?, NULL, ?, ?, ?, 0)
+              ON CONFLICT(user_id) DO UPDATE SET
+                name = excluded.name,
+                last_seen = excluded.last_seen`,
+        args: [typed(userId), typed(name), typed(now), typed(now)],
+      },
+    },
+  ]);
+}
+
 // Append one activity event for a user (sign-in, a feature view, a portfolio edit, a timed data
 // retrieval, …). durationMs, when present, is how long that retrieval took — the dashboard shows the
 // exact lag and labels it fast/standard/slow. Powers the backend monitoring dashboard's per-user

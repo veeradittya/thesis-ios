@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, type FormEvent } from "react";
 import { signIn } from "next-auth/react";
 
 // The two login options, presented with EQUAL prominence — Apple App Store Guideline 4.8 +
@@ -46,6 +47,32 @@ export function SignInButtons({ callbackUrl = "/", onOverride }: { callbackUrl?:
   // onboarding preview to skip auth and jump to the next step. Without it, the normal sign-in flows run.
   const onGoogle = onOverride ?? (() => continueWithGoogle(callbackUrl));
   const onApple = onOverride ?? (() => continueWithApple(callbackUrl));
+
+  // Beta-code sign-in. Always the REAL flow (never overridden): a valid code mints a session for the
+  // stable beta account, then a full reload lets the app run onboarding (new code) or restore the
+  // account's portfolio (existing code). Invalid codes surface an inline error.
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(false);
+  const submitBeta = async (e: FormEvent) => {
+    e.preventDefault();
+    const c = code.trim();
+    if (!c || busy) return;
+    setBusy(true);
+    setError(false);
+    try {
+      const res = await signIn("beta-code", { code: c, redirect: false });
+      if (res?.ok && !res.error) {
+        window.location.assign(callbackUrl || "/");
+        return;
+      }
+    } catch {
+      /* fall through to the error state */
+    }
+    setError(true);
+    setBusy(false);
+  };
+
   return (
     <div className="flex w-full max-w-[320px] flex-col gap-3">
       <button
@@ -62,6 +89,37 @@ export function SignInButtons({ callbackUrl = "/", onOverride }: { callbackUrl?:
         <AppleLogo className="h-[19px] w-[19px]" />
         Continue with Apple
       </button>
+
+      {/* divider */}
+      <div className="flex items-center gap-3 py-0.5">
+        <span className="h-px flex-1 bg-white/10" />
+        <span className="text-[11px] uppercase tracking-wider text-white/35">or</span>
+        <span className="h-px flex-1 bg-white/10" />
+      </div>
+
+      {/* Beta-code field — same pill footprint as the buttons, with an inline submit. */}
+      <form onSubmit={submitBeta} className="flex flex-col gap-2">
+        <div className="relative">
+          <input
+            value={code}
+            onChange={(e) => { setCode(e.target.value); if (error) setError(false); }}
+            placeholder="Sign up with beta code"
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
+            aria-label="Beta code"
+            className={`h-12 w-full rounded-full border bg-black pl-5 pr-[104px] text-[15px] text-white outline-none transition-colors placeholder:text-white/40 ${error ? "border-rose-500/50" : "border-white/15 focus:border-white/30"}`}
+          />
+          <button
+            type="submit"
+            disabled={!code.trim() || busy}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex items-center rounded-full bg-white/10 px-4 py-2 text-[13px] font-medium text-white transition-colors enabled:hover:bg-white/20 disabled:opacity-40"
+          >
+            {busy ? "Checking…" : "Continue"}
+          </button>
+        </div>
+        {error && <p className="px-1 text-center text-[13px] text-rose-300">That beta code isn’t valid.</p>}
+      </form>
     </div>
   );
 }
