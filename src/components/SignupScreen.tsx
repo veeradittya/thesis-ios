@@ -17,7 +17,7 @@ const BG_IMAGES = ["/signup/water.jpg"];
 // LOCAL ONLY: when true, "Continue with Google/Apple" skips real auth and jumps straight into onboarding,
 // so the onboarding pages can be iterated on without signing in. MUST be false to ship. Shared with the
 // Account-tab sign-in (MonacoHome) so that flow can preview onboarding the same way.
-export const DEV_SKIP_AUTH = true;
+export const DEV_SKIP_AUTH = false;
 
 export function SignupScreen({ onLater, onSignedIn }: { onLater: () => void; onSignedIn: () => void }) {
   // Pick a backdrop at random, once per mount — which image a visitor sees is completely random.
