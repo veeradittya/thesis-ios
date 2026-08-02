@@ -1107,18 +1107,19 @@ export function MonacoHome() {
                 <div className={`mx-auto flex w-full max-w-[440px] flex-col gap-5 px-6 pt-[calc(env(safe-area-inset-top)+32px)] ${nativeChrome ? "pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pb-28"}`}>
                   {acctView === "menu" ? (
                     <>
-                      <div>
-                        <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">Account</p>
-                        <p className="mt-1.5 text-[15px] text-white">{session.user.name ?? "Signed in"}</p>
-                        {session.user.email && <p className="text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">Account</p>
+                          <p className="mt-1.5 truncate text-[15px] text-white">{session.user.name ?? "Signed in"}</p>
+                          {session.user.email && <p className="truncate text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
+                        </div>
+                        <button
+                          onClick={() => signOut()}
+                          className="shrink-0 rounded-full border border-white/15 bg-white/[0.06] px-6 py-2 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
+                        >
+                          Log out
+                        </button>
                       </div>
-
-                      <button
-                        onClick={() => signOut()}
-                        className="self-start rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
-                      >
-                        Log out
-                      </button>
 
                       {/* Face ID app-lock — only on a device that supports it. Applies on next launch. */}
                       {appLock.available && (
