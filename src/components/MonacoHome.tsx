@@ -191,12 +191,18 @@ function MobileDisclaimer() {
 }
 
 // The iOS shell's bridge surface. It sets `__thesisNativeChrome` before our JS runs, calls the two
-// setters to drive tab state, and listens on the `thesisNav` message handler for our state reports.
+// setters to drive tab state, and listens on `thesisNav` (tab-state reports) and `thesisChrome`
+// (whether a full-screen web takeover — sign-up gate / onboarding — wants the native bars hidden).
 type ThesisWindow = Window & {
   __thesisNativeChrome?: boolean;
   __thesisSetTab?: (tab: string) => void;
   __thesisSetDashTab?: (sub: string) => void;
-  webkit?: { messageHandlers?: { thesisNav?: { postMessage: (m: unknown) => void } } };
+  webkit?: {
+    messageHandlers?: {
+      thesisNav?: { postMessage: (m: unknown) => void };
+      thesisChrome?: { postMessage: (m: unknown) => void };
+    };
+  };
 };
 
 export function MonacoHome() {
@@ -301,6 +307,14 @@ export function MonacoHome() {
     if (!nativeChrome || typeof window === "undefined") return;
     (window as ThesisWindow).webkit?.messageHandlers?.thesisNav?.postMessage({ tab: mobilePage, dashTab: DASH_TO_NATIVE[dashTab] });
   }, [nativeChrome, mobilePage, dashTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A full-screen web takeover (the sign-up gate or the onboarding wizard) must sit ABOVE the native bars
+  // — a web z-index can't paint over a native view, so ask the shell to hide its bottom nav + slider while
+  // one is up, and restore them when it closes. Fires on mount and whenever a takeover opens/closes.
+  useEffect(() => {
+    if (!nativeChrome || typeof window === "undefined") return;
+    const takeover = (status === "unauthenticated" && !signupDismissed) || onboarding;
+    (window as ThesisWindow).webkit?.messageHandlers?.thesisChrome?.postMessage({ hidden: takeover });
+  }, [nativeChrome, status, signupDismissed, onboarding]);
 
   // Live quotes for the Analyst Sentiment cards — SAME pipeline as the holdings ledger (/api/quote +
   // the shared price cache). Seeded from cache and fetched once when that tab is open.

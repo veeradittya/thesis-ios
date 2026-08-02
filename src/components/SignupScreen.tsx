@@ -46,9 +46,13 @@ export function SignupScreen({ onLater, onSignedIn }: { onLater: () => void; onS
           right: 14,
         }}
       >
-        {/* background photo — blurred into a soft backdrop; extended past the card edges (the card clips
-            overflow) so the blur never reveals a faded border */}
-        <div className="absolute bg-cover bg-center" style={{ inset: "-24px", backgroundImage: `url(${bgImage})`, filter: "blur(5px)" }} />
+        {/* background photo — blurred into a soft backdrop; extended past the card edges so the blur never
+            reveals a faded border. It lives in its OWN rounded clip layer promoted to a compositing layer
+            (translateZ): WebKit's overflow:hidden + border-radius won't clip a filtered child, so on the
+            WKWebView the blur would otherwise spill past the card's rounded border — this contains it. */}
+        <div className="absolute inset-0 overflow-hidden rounded-[34px]" style={{ transform: "translateZ(0)" }}>
+          <div className="absolute bg-cover bg-center" style={{ inset: "-24px", backgroundImage: `url(${bgImage})`, filter: "blur(5px)" }} />
+        </div>
         {/* scrim — a light overall dim (kept translucent so the photo reads) plus a bottom-weighted
             gradient so the bottom-third title/subtext/buttons stay legible; the blur shows through up top */}
         <div className="absolute inset-0 bg-black/40" />
