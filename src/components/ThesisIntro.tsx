@@ -16,14 +16,15 @@ const ThesisIntroGlobe = dynamic(
 // First-launch brand moment. Flow:
 //   1. a rotating globe appears and 2. accelerates,
 //   3. the subtext generates in beneath it, then 4. the globe + subtext fade out together,
-//   5. "THESIS" rises and FLIP-animates into the exact spot it occupies in the floating nav bar,
-//      handing off as the overlay fades to reveal the identical real nav wordmark underneath.
+//   5. "THESIS" crossfades into the globe's place, holds a beat, then fades out in place while the
+//      overlay dissolves to reveal the app underneath.
 // Shows ONCE per install.
 
 const SEEN_KEY = "thesis.intro.v1";
-// DEV ONLY: when true, the intro replays on EVERY reload and never marks itself seen — for local
-// tuning. false = once-per-install (shipping).
-const ALWAYS_REPLAY = false;
+// In development the intro replays on EVERY refresh (and never marks itself seen), so you can watch the
+// whole sequence each reload while tuning. A production build (`next build`) automatically reverts to
+// once-per-install — no flag to remember to flip before shipping.
+const ALWAYS_REPLAY = process.env.NODE_ENV === "development";
 const SUBTEXT = "Your worldview, monitored around the clock.";
 const EASE = [0.22, 1, 0.36, 1] as const;
 const HERO_Y = 0.5; // hero wordmark vertical center
@@ -31,10 +32,10 @@ const HERO_Y = 0.5; // hero wordmark vertical center
 // Whole intro is tuned to run < 5s: globe (with subtext) ~2.6s, then a quick handoff to THESIS → nav.
 const SUB_IN_MS = 1300; // into the globe (while it's still slowing), when the subtext generates in
 const GLOBE_MS = 2600; // globe + subtext visible, then the globe fades / THESIS takes its place
-const ENTER_HOLD_MS = 1100; // THESIS visible on its own before it morphs into the nav (+0.5s hold before exit)
+const ENTER_HOLD_MS = 1100; // THESIS visible on its own before it fades out
 
-type Phase = "measure" | "globe" | "globeout" | "enter" | "morph" | "reveal";
-type Geo = { startX: number; startY: number; endX: number; endY: number; scale: number; fontSize: number };
+type Phase = "measure" | "globe" | "globeout" | "enter" | "outro";
+type Geo = { startX: number; startY: number; scale: number; fontSize: number };
 
 // If the globe (WebGL/three.js) throws while rendering, drop it silently — the rest of the intro
 // (subtext, THESIS handoff) still plays and the timed phases carry it through to the reveal.
@@ -90,10 +91,9 @@ export function ThesisIntro() {
     const nav = document.querySelector("[data-thesis-wordmark]") as HTMLElement | null;
     const probe = probeRef.current;
     if (!nav || !probe) {
-      setDead(true); // can't line up the handoff → skip rather than show a floating splash
+      setDead(true); // app chrome not ready to measure the wordmark size → skip rather than guess
       return;
     }
-    const navRect = nav.getBoundingClientRect();
     const wr = probe.getBoundingClientRect(); // natural wordmark size at nav font-size
     const w = wr.width || 1;
     const h = wr.height || 1;
@@ -105,8 +105,6 @@ export function ThesisIntro() {
     geo.current = {
       startX: vw / 2 - w / 2,
       startY: vh * HERO_Y - h / 2,
-      endX: navRect.left + navRect.width / 2 - w / 2,
-      endY: navRect.top + navRect.height / 2 - h / 2,
       scale,
       fontSize: parseFloat(getComputedStyle(nav).fontSize) || 20,
     };
@@ -122,7 +120,7 @@ export function ThesisIntro() {
       local.push(setTimeout(() => setShowSub(true), SUB_IN_MS));
       local.push(setTimeout(() => setPhase((p) => (p === "globe" ? "globeout" : p)), GLOBE_MS));
     } else if (phase === "enter") {
-      local.push(setTimeout(() => setPhase((p) => (p === "enter" ? "morph" : p)), ENTER_HOLD_MS));
+      local.push(setTimeout(() => setPhase((p) => (p === "enter" ? "outro" : p)), ENTER_HOLD_MS));
     }
     return () => local.forEach(clearTimeout);
   }, [phase]);
@@ -139,7 +137,7 @@ export function ThesisIntro() {
     }
     setDead(true);
   };
-  const skip = () => setPhase("reveal");
+  const skip = () => finish();
 
   const g = geo.current;
   const wordStyle: React.CSSProperties = {
@@ -151,7 +149,7 @@ export function ThesisIntro() {
     whiteSpace: "nowrap",
   };
   const onGlobe = phase === "globe" || phase === "globeout";
-  const atNav = phase === "morph" || phase === "reveal";
+  const outro = phase === "outro"; // THESIS fades out in place; overlay dissolves to the app
 
   return (
     <>
@@ -169,11 +167,8 @@ export function ThesisIntro() {
           className="fixed inset-0 z-[100] overflow-hidden"
           style={{ backgroundColor: "#040405" }}
           initial={{ opacity: 1 }}
-          animate={{ opacity: phase === "reveal" ? 0 : 1 }}
-          transition={{ duration: 0.3, ease: "easeInOut" }}
-          onAnimationComplete={() => {
-            if (phase === "reveal") finish();
-          }}
+          animate={{ opacity: outro ? 0 : 1 }}
+          transition={{ duration: outro ? 0.7 : 0.3, ease: "easeInOut" }}
           onClick={skip}
           aria-hidden
         >
@@ -209,26 +204,23 @@ export function ThesisIntro() {
               className="pointer-events-none fixed left-0 right-0 text-center"
               style={{ top: "58%", fontFamily: "var(--font-inter), system-ui, sans-serif", fontWeight: 400, fontSize: "17.5px", letterSpacing: "0.01em", color: "#fff", padding: "0 32px", textShadow: "0 1px 4px rgba(0,0,0,0.55)" }}
               initial={{ opacity: 1, filter: "blur(0px)" }}
-              animate={{ opacity: atNav ? 0 : 1, filter: atNav ? "blur(5px)" : "blur(0px)" }}
+              animate={{ opacity: outro ? 0 : 1, filter: outro ? "blur(5px)" : "blur(0px)" }}
               transition={{ duration: 0.5, ease: "easeInOut" }}
             >
               <TextGenerateEffect words={SUBTEXT} filter duration={0.3} wordStagger={0.05} />
             </motion.div>
           )}
 
-          {/* 5) the wordmark — crossfades into the globe's place as it fades, then morphs into the nav spot */}
-          {(phase === "globeout" || phase === "enter" || atNav) && (
+          {/* 5) the wordmark — crossfades into the globe's place, holds, then simply FADES OUT (staying
+              put) as the overlay dissolves, handing off to the app underneath. */}
+          {(phase === "globeout" || phase === "enter" || outro) && (
             <motion.span
               style={{ ...wordStyle, fontSize: g.fontSize, position: "fixed", left: 0, top: 0, transformOrigin: "center", willChange: "transform, opacity" }}
               initial={{ opacity: 0, x: g.startX, y: g.startY, scale: g.scale }}
-              animate={
-                atNav
-                  ? { opacity: 1, x: g.endX, y: g.endY, scale: 1 } // morph + reveal rest at the nav spot
-                  : { opacity: 1, x: g.startX, y: g.startY, scale: g.scale } // fade in at the hero (the globe's place)
-              }
-              transition={atNav ? { duration: 0.6, ease: EASE } : { duration: 0.5, ease: EASE }}
+              animate={{ opacity: outro ? 0 : 1, x: g.startX, y: g.startY, scale: g.scale }} // fade out in place
+              transition={{ duration: outro ? 0.7 : 0.5, ease: outro ? "easeInOut" : EASE }}
               onAnimationComplete={() => {
-                if (phase === "morph") setPhase("reveal");
+                if (outro) finish();
               }}
             >
               THESIS
