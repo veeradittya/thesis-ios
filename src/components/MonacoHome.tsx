@@ -31,6 +31,8 @@ import { ensureMarkets } from "@/lib/marketsStore";
 import { installRetrievalTimer, setRetrievalReporter } from "@/lib/retrievalTimer";
 import { PullToRefresh } from "@/components/PullToRefresh";
 import { ThesisIntro } from "@/components/ThesisIntro";
+import { SignupScreen, DEV_SKIP_AUTH } from "@/components/SignupScreen";
+import { Onboarding } from "@/components/Onboarding";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -188,6 +190,15 @@ function MobileDisclaimer() {
   );
 }
 
+// The iOS shell's bridge surface. It sets `__thesisNativeChrome` before our JS runs, calls the two
+// setters to drive tab state, and listens on the `thesisNav` message handler for our state reports.
+type ThesisWindow = Window & {
+  __thesisNativeChrome?: boolean;
+  __thesisSetTab?: (tab: string) => void;
+  __thesisSetDashTab?: (sub: string) => void;
+  webkit?: { messageHandlers?: { thesisNav?: { postMessage: (m: unknown) => void } } };
+};
+
 export function MonacoHome() {
   const [ledger, setLedger] = useState<ParsedPortfolio | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -246,15 +257,50 @@ export function MonacoHome() {
   const { data: session, status } = useSession();
   const [acctMenu, setAcctMenu] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false); // desktop: sign-in chooser modal (Google + Apple)
+  const [signupDismissed, setSignupDismissed] = useState(false); // logged-out sign-up gate → "later" dismisses
+  const [onboarding, setOnboarding] = useState(false); // new-user onboarding wizard (post sign-in / ?onboard=1)
+  const [onboarded, setOnboarded] = useState(false); // completed onboarding → treat like a set-up account (editable portfolio)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
+  const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
+  // Native iOS shell renders its OWN glass bottom-nav + Dashboard slider. It sets this flag before our JS
+  // runs; when present we yield our web nav/slider, pad for the floating native bars, and drive/report tab
+  // state over a bridge. Absent (desktop / mobile-web) → everything below is unchanged. Read once via a
+  // lazy initializer — the whole shell is gated on `mounted`, so this is set before the real UI renders.
+  const [nativeChrome] = useState<boolean>(
+    () => typeof window !== "undefined" && (window as ThesisWindow).__thesisNativeChrome === true,
+  );
   // Deep link: tapping the daily-brief push opens the app with ?view=brief. Honour ?view= on load.
+  // ?onboard=1 forces the onboarding wizard (local preview, since real sign-in won't complete in a browser).
   useEffect(() => {
     try {
-      const v = new URLSearchParams(window.location.search).get("view");
+      const q = new URLSearchParams(window.location.search);
+      const v = q.get("view");
       if (v === "brief" || v === "dashboard" || v === "portfolio") setMobilePage(v);
+      if (q.get("onboard") === "1") setOnboarding(true);
     } catch {}
   }, []);
-  const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
+  // Contract map between our internal Dashboard sub-tab ids and the native slider's strings.
+  const DASH_TO_NATIVE: Record<DashTab, "analyst" | "news" | "markets"> = { extra: "analyst", news: "news", markets: "markets" };
+  // Inbound bridge: let the native bars drive our tab state (no reload). Defined only in native mode.
+  useEffect(() => {
+    if (!nativeChrome || typeof window === "undefined") return;
+    const w = window as ThesisWindow;
+    w.__thesisSetTab = (tab) => {
+      if (tab === "brief" || tab === "dashboard" || tab === "portfolio" || tab === "account") setMobilePage(tab);
+    };
+    w.__thesisSetDashTab = (sub) => {
+      const map: Record<string, DashTab> = { analyst: "extra", news: "news", markets: "markets" };
+      if (map[sub]) setDashTab(map[sub]);
+    };
+    return () => { delete w.__thesisSetTab; delete w.__thesisSetDashTab; };
+  }, [nativeChrome]);
+  // Outbound bridge: report the current tab + Dashboard sub-tab so the native bars stay in sync. Fires on
+  // mount (initial sync — fixes "native says Brief while web is on Dashboard") and on every change from any
+  // source (native call, ?view= deep link, in-content button). No-op / skipped when not in native mode.
+  useEffect(() => {
+    if (!nativeChrome || typeof window === "undefined") return;
+    (window as ThesisWindow).webkit?.messageHandlers?.thesisNav?.postMessage({ tab: mobilePage, dashTab: DASH_TO_NATIVE[dashTab] });
+  }, [nativeChrome, mobilePage, dashTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Live quotes for the Analyst Sentiment cards — SAME pipeline as the holdings ledger (/api/quote +
   // the shared price cache). Seeded from cache and fetched once when that tab is open.
@@ -378,6 +424,7 @@ export function MonacoHome() {
     [],
   );
   useEffect(() => setNavCondensed(false), [mobilePage]); // restore the nav when switching pages
+  useEffect(() => { if (mobilePage !== "account") setAcctView("menu"); }, [mobilePage]); // leave Account → back to its menu
 
   // Backend monitoring: log which feature/page a SIGNED-IN user opens + timed retrievals. Events are
   // QUEUED and flushed in a single batched POST (debounced ~1.5s, and on page-hide) instead of one
@@ -452,10 +499,10 @@ export function MonacoHome() {
   const firstName = (session?.user?.name || "").trim().split(/\s+/)[0] || null; // names the seeded ledger for a signed-in user
 
   // In-app account deletion (App Store Guideline 5.1.1(v)): confirm → POST /api/account/delete → signOut.
-  const [acctDeleteConfirm, setAcctDeleteConfirm] = useState(false);
   const [acctDeleting, setAcctDeleting] = useState(false);
   const [acctDeleted, setAcctDeleted] = useState(false);
   const [acctDeleteError, setAcctDeleteError] = useState(false);
+  const [acctView, setAcctView] = useState<"menu" | "about" | "delete">("menu"); // Account tab: stacked menu → sub-pages
   const handleDeleteAccount = async () => {
     setAcctDeleting(true);
     setAcctDeleteError(false);
@@ -713,6 +760,12 @@ export function MonacoHome() {
         const seed = promoted ?? demoPortfolio();
         if (!cancelled) { setLedger(promoted ? seed : firstName ? { ...seed, portfolioName: firstName } : seed); setLedgerScope(scope); }
         try { localStorage.removeItem(GUEST_LEDGER_KEY); } catch {}
+        // New user: signed in, but no portfolio anywhere (server or guest) and onboarding never completed
+        // on this device → this is a first-time account, so run the same onboarding wizard the sign-up
+        // gate uses. A returning user's holdings load from Turso above (early return), so they skip this.
+        if (!cancelled && !promoted) {
+          try { if (!localStorage.getItem("thesis.onboarding.v1")) setOnboarding(true); } catch {}
+        }
       } else {
         // Guest → restore a locally-edited portfolio, else seed the retail demo (both editable).
         const seed = loadGuestLedger() ?? demoPortfolio();
@@ -766,6 +819,9 @@ export function MonacoHome() {
   };
   // Phone (every page): the nav pill shrinks while scrolling down (navCondensed), restores on scroll-up.
   const navSmall = isMobile && navCondensed;
+  // In the native iOS shell the OS renders the bottom nav + Dashboard slider, so we drop our own web
+  // chrome (the floating pill + the DashboardTabs slider). Desktop / mobile-web keep them.
+  const hideWebChrome = isMobile && nativeChrome;
 
   // Compact portfolio context handed to the chat assistant.
   const portfolioCtx = ledger
@@ -812,7 +868,9 @@ export function MonacoHome() {
   return (
     <div className={`bg-black font-sans tracking-[-0.02em] text-[#fafafa] antialiased ${isMobile ? "min-h-dvh overflow-x-clip" : "flex h-screen flex-col"}`}>
       {/* ── Floating liquid-glass nav pill — the pre-fork betathesis nav, unified across breakpoints.
-          The entire pill sits at the BOTTOM on phones (safe-area aware); top-6 on desktop (≥768px). ───── */}
+          The entire pill sits at the BOTTOM on phones (safe-area aware); top-6 on desktop (≥768px).
+          Hidden inside the native iOS shell — the OS draws its own bottom nav there. ───── */}
+      {!hideWebChrome && (
       <header className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+16px)] z-50 w-full px-4 md:bottom-auto md:top-6">
         <div className="mx-auto flex w-full max-w-[1920px] flex-col items-center">
           <div
@@ -955,6 +1013,7 @@ export function MonacoHome() {
           </div>
         </div>
       </header>
+      )}
 
 
       {/* Desktop sign-in chooser — both options (Apple + Google) with equal prominence, opened from
@@ -1006,73 +1065,87 @@ export function MonacoHome() {
                   </p>
                 </div>
               ) : session?.user ? (
-                // "Account" tab, signed in — identity, log out, disclaimer + privacy, and account deletion.
-                <div className="mx-auto flex w-full max-w-[440px] flex-col gap-5 px-6 pt-[calc(env(safe-area-inset-top)+32px)] pb-28">
-                  <div>
-                    <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">Account</p>
-                    <p className="mt-1.5 text-[15px] text-white">{session.user.name ?? "Signed in"}</p>
-                    {session.user.email && <p className="text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
-                  </div>
-
-                  <button
-                    onClick={() => signOut()}
-                    className="self-start rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
-                  >
-                    Log out
-                  </button>
-
-                  {/* About + disclaimer + privacy policy */}
-                  <div className="mt-2 rounded-2xl border border-white/[0.09] p-4">
-                    <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">About</p>
-                    <p className="mt-2 text-[13px] leading-snug text-[#8a8a8a]">
-                      Thesis is for informational purposes only and is not investment, financial, or trading
-                      advice. Prediction-market data is informational; Thesis is not a broker-dealer and does not
-                      execute trades or bets. Do your own research.
-                    </p>
-                    <a
-                      href="/privacy"
-                      className="mt-3 inline-block text-[13px] text-white/80 underline underline-offset-2 transition-colors hover:text-white"
-                    >
-                      Privacy Policy
-                    </a>
-                  </div>
-
-                  {/* In-app account deletion (App Store Guideline 5.1.1(v)) */}
-                  <div className="mt-1">
-                    {!acctDeleteConfirm ? (
-                      <button
-                        onClick={() => { setAcctDeleteConfirm(true); setAcctDeleteError(false); }}
-                        className="text-[14px] font-medium text-rose-400 transition-colors hover:text-rose-300"
-                      >
-                        Delete Account
-                      </button>
-                    ) : (
-                      <div className="rounded-2xl border border-rose-500/30 bg-rose-500/[0.06] p-4">
-                        <p className="text-[13.5px] leading-snug text-white">
-                          This permanently deletes your account and all your data. This can&apos;t be undone.
-                        </p>
-                        {acctDeleteError && (
-                          <p className="mt-2 text-[12.5px] text-rose-300">Couldn&apos;t delete your account. Please try again.</p>
-                        )}
-                        <div className="mt-3 flex items-center gap-3">
-                          <button
-                            onClick={handleDeleteAccount}
-                            disabled={acctDeleting}
-                            className="rounded-full bg-rose-500 px-5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-rose-400 disabled:opacity-60"
-                          >
-                            {acctDeleting ? "Deleting…" : "Delete everything"}
-                          </button>
-                          <button
-                            onClick={() => setAcctDeleteConfirm(false)}
-                            disabled={acctDeleting}
-                            className="text-[13.5px] text-[#8a8a8a] transition-colors hover:text-white disabled:opacity-60"
-                          >
-                            Cancel
-                          </button>
-                        </div>
+                // "Account" tab, signed in. A stacked menu (identity + Log out + tappable rows) whose rows
+                // open their own page in place: About, Privacy Policy (the /privacy route), Delete Account.
+                <div className={`mx-auto flex w-full max-w-[440px] flex-col gap-5 px-6 pt-[calc(env(safe-area-inset-top)+32px)] ${nativeChrome ? "pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pb-28"}`}>
+                  {acctView === "menu" ? (
+                    <>
+                      <div>
+                        <p className="text-[12px] uppercase tracking-wider text-[#8a8a8a]">Account</p>
+                        <p className="mt-1.5 text-[15px] text-white">{session.user.name ?? "Signed in"}</p>
+                        {session.user.email && <p className="text-[13px] text-[#8a8a8a]">{session.user.email}</p>}
                       </div>
-                    )}
-                  </div>
+
+                      <button
+                        onClick={() => signOut()}
+                        className="self-start rounded-full border border-white/15 bg-white/[0.06] px-7 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.12]"
+                      >
+                        Log out
+                      </button>
+
+                      {/* Stacked options — each row opens its respective page. */}
+                      <div className="mt-2 flex flex-col gap-2.5">
+                        <button
+                          onClick={() => setAcctView("about")}
+                          className="flex w-full items-center justify-between rounded-2xl border border-white/[0.09] bg-white/[0.03] px-4 py-4 text-left transition-colors hover:bg-white/[0.06]"
+                        >
+                          <span className="text-[15px] text-white">About</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/40" aria-hidden><path d="m9 18 6-6-6-6" /></svg>
+                        </button>
+                        <a
+                          href="/privacy"
+                          className="flex w-full items-center justify-between rounded-2xl border border-white/[0.09] bg-white/[0.03] px-4 py-4 transition-colors hover:bg-white/[0.06]"
+                        >
+                          <span className="text-[15px] text-white">Privacy Policy</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/40" aria-hidden><path d="m9 18 6-6-6-6" /></svg>
+                        </a>
+                        <button
+                          onClick={() => { setAcctView("delete"); setAcctDeleteError(false); }}
+                          className="flex w-full items-center justify-between rounded-2xl border border-rose-500/25 bg-rose-500/[0.05] px-4 py-4 text-left transition-colors hover:bg-rose-500/[0.09]"
+                        >
+                          <span className="text-[15px] text-rose-300">Delete Account</span>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-rose-300/50" aria-hidden><path d="m9 18 6-6-6-6" /></svg>
+                        </button>
+                      </div>
+                    </>
+                  ) : acctView === "about" ? (
+                    <>
+                      <button onClick={() => setAcctView("menu")} className="-ml-1 flex items-center gap-1 self-start text-[14px] text-white/55 transition-colors hover:text-white">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>
+                        Account
+                      </button>
+                      <h2 className="text-[22px] font-semibold text-white">About</h2>
+                      <p className="text-[14px] leading-relaxed text-[#a8a8a8]">
+                        Thesis is for informational purposes only and is not investment, financial, or trading
+                        advice. Prediction-market data is informational; Thesis is not a broker-dealer and does not
+                        execute trades or bets. Do your own research.
+                      </p>
+                    </>
+                  ) : (
+                    // Delete Account page — App Store Guideline 5.1.1(v). Opening this page is the deliberate
+                    // step; the button below performs the permanent, irreversible deletion.
+                    <>
+                      <button onClick={() => setAcctView("menu")} className="-ml-1 flex items-center gap-1 self-start text-[14px] text-white/55 transition-colors hover:text-white">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="m15 18-6-6 6-6" /></svg>
+                        Account
+                      </button>
+                      <h2 className="text-[22px] font-semibold text-white">Delete Account</h2>
+                      <p className="text-[14px] leading-relaxed text-[#a8a8a8]">
+                        This permanently deletes your account and all of your data — your portfolio, theses, and
+                        settings. This can&apos;t be undone.
+                      </p>
+                      {acctDeleteError && (
+                        <p className="text-[13px] text-rose-300">Couldn&apos;t delete your account. Please try again.</p>
+                      )}
+                      <button
+                        onClick={handleDeleteAccount}
+                        disabled={acctDeleting}
+                        className="mt-1 self-start rounded-full bg-rose-500 px-6 py-2.5 text-[14px] font-medium text-white transition-colors hover:bg-rose-400 disabled:opacity-60"
+                      >
+                        {acctDeleting ? "Deleting…" : "Delete everything"}
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : (
                 // "Account" tab, signed out — the sign-in page: both options (Apple + Google), equal
@@ -1084,7 +1157,10 @@ export function MonacoHome() {
                       {"You'll get access to a customizable portfolio, a daily brief, insights, and more."}
                     </p>
                   </div>
-                  <SignInButtons />
+                  {/* Same as the sign-up gate: a new user who signs in here lands in onboarding. In prod
+                      that's driven by new-user detection after real auth (see the portfolio-load effect);
+                      DEV_SKIP_AUTH lets the flow be previewed without signing in. */}
+                  <SignInButtons onOverride={DEV_SKIP_AUTH ? () => setOnboarding(true) : undefined} />
                 </div>
               )
             ) : mobilePage === "portfolio" ? (
@@ -1092,11 +1168,11 @@ export function MonacoHome() {
               // tap a holding to expand-edit it, swipe to remove. Drives every other card + the agent.
               // Prices load once (from cache, then one fetch); pull down to refresh them.
               <PullToRefresh onRefresh={refreshPrices}>
-                <div className="px-4 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
+                <div className={`px-4 pt-[calc(env(safe-area-inset-top)+16px)] ${nativeChrome ? "pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
                   <PortfolioLedger
                     data={ledger}
                     onChange={setLedger}
-                    readOnly={!authed}
+                    readOnly={!authed && !onboarded}
                     refreshSignal={priceRefresh}
                     onRefreshed={() => { priceRefreshResolve.current?.(); priceRefreshResolve.current = null; }}
                   />
@@ -1104,8 +1180,9 @@ export function MonacoHome() {
               </PullToRefresh>
             ) : (
               // "Dashboard" tab — split into three sliding sub-tabs: News · Prediction Markets · Extra.
-              <div className="flex flex-col gap-3.5 px-3.5 pb-[calc(env(safe-area-inset-bottom)+96px)] pt-[calc(env(safe-area-inset-top)+16px)]">
-              <DashboardTabs active={dashTab} onChange={setDashTab} />
+              <div className={`flex flex-col gap-3.5 px-3.5 ${nativeChrome ? "pt-[calc(env(safe-area-inset-top)+64px)] pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pt-[calc(env(safe-area-inset-top)+16px)] pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
+              {/* Native shell draws its own Dashboard slider at the top; hide ours there. */}
+              {!nativeChrome && <DashboardTabs active={dashTab} onChange={setDashTab} />}
 
               {/* News — Portfolio Headlines embedded straight on the background. Tapping a headline
                   opens the article as a blurred full-screen overlay (rendered below), not inline. */}
@@ -1271,7 +1348,7 @@ export function MonacoHome() {
             style={{ width: canvasSize.w, height: canvasSize.h }}
           >
             {/* default positions/sizes come from the fill-height packer (computeHomeLayout) */}
-            <LedgerCard data={ledger} editable={authed} onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
+            <LedgerCard data={ledger} editable={authed || onboarded} onChange={setLedger} x={homeL.ledger.x} y={homeL.ledger.y} width={homeL.ledger.w} height={homeL.ledger.h} />
             <ThesisMonitorCard user={monitorUser} x={homeL.monitor.x} y={homeL.monitor.y} width={homeL.monitor.w} height={homeL.monitor.h} />
             <PortfolioMarketsCard holdings={ledger.holdings} x={homeL.markets.x} y={homeL.markets.y} width={homeL.markets.w} height={homeL.markets.h} onOpenMarket={openMarket} onOpenEvent={openEvent} />
             <WhaleCard x={homeL.whale.x} y={homeL.whale.y} width={homeL.whale.w} height={homeL.whale.h} />
@@ -1313,6 +1390,34 @@ export function MonacoHome() {
       </main>
 
       {menu && <ContextMenu x={menu.vx} y={menu.vy} items={menuItems} onClose={() => setMenu(null)} />}
+
+      {/* Sign-up gate for logged-out visitors (once the session resolves to a guest). "Sign up now" flips
+          the card to the Google/Apple sign-in on the card itself; "later" dismisses it for this session. */}
+      {status === "unauthenticated" && !signupDismissed && (
+        <SignupScreen
+          onLater={() => setSignupDismissed(true)}
+          onSignedIn={() => { setSignupDismissed(true); setOnboarding(true); }}
+        />
+      )}
+
+      {/* New-user onboarding wizard (name → portfolio → theses → risk → permissions → done). Launched for a
+          freshly signed-in NEW user; ?onboard=1 forces it for local preview. */}
+      {onboarding && (
+        <Onboarding
+          initialName={(session?.user?.name || "").trim().split(/\s+/)[0] || ""}
+          onClose={() => setOnboarding(false)}
+          onComplete={(profile) => {
+            try {
+              localStorage.setItem("thesis.onboarding.v1", JSON.stringify({ ...profile, holdings: undefined }));
+            } catch {}
+            if (profile.ledger) setLedger(profile.ledger);
+            setOnboarded(true); // holdings + theses now belong to a real (set-up) portfolio → editable, drives every card
+            setOnboarding(false);
+            setMobilePage("brief"); // land on the daily briefing
+            window.scrollTo({ top: 0 });
+          }}
+        />
+      )}
 
       {/* First-launch brand moment — self-gates on localStorage, morphs into the nav wordmark. */}
       <ThesisIntro />

@@ -41,18 +41,22 @@ function continueWithApple(callbackUrl: string) {
   signIn("apple", { callbackUrl });
 }
 
-export function SignInButtons({ callbackUrl = "/" }: { callbackUrl?: string }) {
+export function SignInButtons({ callbackUrl = "/", onOverride }: { callbackUrl?: string; onOverride?: () => void }) {
+  // onOverride (when passed) replaces the real Google/Apple sign-in on BOTH buttons — used by the local
+  // onboarding preview to skip auth and jump to the next step. Without it, the normal sign-in flows run.
+  const onGoogle = onOverride ?? (() => continueWithGoogle(callbackUrl));
+  const onApple = onOverride ?? (() => continueWithApple(callbackUrl));
   return (
     <div className="flex w-full max-w-[320px] flex-col gap-3">
       <button
-        onClick={() => continueWithGoogle(callbackUrl)}
+        onClick={onGoogle}
         className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-[#131314] text-[16px] font-medium text-white transition-colors hover:bg-[#1d1d1f]"
       >
         <GoogleLogo className="h-[18px] w-[18px]" />
         Continue with Google
       </button>
       <button
-        onClick={() => continueWithApple(callbackUrl)}
+        onClick={onApple}
         className="inline-flex h-12 w-full items-center justify-center gap-2.5 rounded-full border border-white/15 bg-black text-[16px] font-medium text-white transition-colors hover:bg-[#111]"
       >
         <AppleLogo className="h-[19px] w-[19px]" />

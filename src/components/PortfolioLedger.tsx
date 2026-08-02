@@ -270,7 +270,7 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, re
           {readOnly ? (
             "No holdings to show."
           ) : (
-            <>No holdings yet. Search or tap <span className="text-white/80">Add</span> below to build your portfolio.</>
+            <>Search an asset or tap <span className="text-white/80">Add</span> below.</>
           )}
         </p>
       )}
@@ -398,7 +398,10 @@ export function PortfolioLedger({ data, onChange, refreshSignal, onRefreshed, re
                       {/* Static Add pill — a per-item animated BorderBeam here meant 7+ continuously
                           animating blurred borders, which dropped the page to ~24fps. Plain pill + a
                           hover brighten keeps the look at 60fps. */}
-                      <span className="block shrink-0 rounded-full border border-white/15 bg-white/[0.04] px-3.5 py-1 text-[13px] font-medium text-white transition-colors group-hover:border-white/30">Add</span>
+                      <span
+                        className="block shrink-0 rounded-full px-3.5 py-1 text-[13px] font-medium text-white"
+                        style={{ background: "rgba(0,0,0,0.42)", backdropFilter: "blur(10px)", WebkitBackdropFilter: "blur(10px)", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.14), 0 0 0 1px rgba(255,255,255,0.10)" }}
+                      >Add</span>
                     </div>
                   </li>
                 ))}
