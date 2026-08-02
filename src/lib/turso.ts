@@ -193,6 +193,61 @@ export async function getPortfolioAnalytics(
   }
 }
 
+// ── Market stats cache (shared, per ticker) ─────────────────────────────────────────────────────
+// Real beta + annualized volatility per ticker, computed from Alpaca price history and cached on the
+// shared `assets` row (one per ticker, reused by every portfolio that holds it). We persist only these
+// two numbers + a timestamp — never any price series. See src/lib/marketStats.ts. The market proxy
+// (SPY) is stored as its own ticker row (beta 1, sigma = market volatility).
+export interface MarketStat { ticker: string; beta: number; sigma: number; mktAt: string | null }
+
+// Ensure the market-stats columns exist on `assets` without disturbing the agent's columns.
+async function ensureAssetsMarketCols(): Promise<void> {
+  const info = await query("PRAGMA table_info(assets)").catch(() => [] as Record<string, string | null>[]);
+  if (!info.length) {
+    await pipeline([{ type: "execute", stmt: { sql: "CREATE TABLE IF NOT EXISTS assets (ticker TEXT PRIMARY KEY, verdict TEXT, risk INTEGER, rationale TEXT, signals TEXT, analyst_brief TEXT, researched_at TEXT, beta REAL, sigma REAL, mkt_at TEXT)", args: [] } }]);
+    return;
+  }
+  const cols = new Set(info.map((r) => r.name));
+  const adds: string[] = [];
+  if (!cols.has("beta")) adds.push("ALTER TABLE assets ADD COLUMN beta REAL");
+  if (!cols.has("sigma")) adds.push("ALTER TABLE assets ADD COLUMN sigma REAL");
+  if (!cols.has("mkt_at")) adds.push("ALTER TABLE assets ADD COLUMN mkt_at TEXT");
+  for (const sql of adds) await pipeline([{ type: "execute", stmt: { sql, args: [] } }]);
+}
+
+// Read cached beta/sigma/mkt_at for the given tickers (uppercased). Missing tickers are simply absent.
+export async function getMarketStats(tickers: string[]): Promise<Record<string, MarketStat>> {
+  const uniq = [...new Set(tickers.map((t) => t.toUpperCase()).filter(Boolean))];
+  if (!uniq.length) return {};
+  const out: Record<string, MarketStat> = {};
+  try {
+    const placeholders = uniq.map(() => "?").join(",");
+    const rows = await query(`SELECT ticker, beta, sigma, mkt_at FROM assets WHERE ticker IN (${placeholders})`, uniq);
+    for (const r of rows) {
+      if (r.beta == null || r.sigma == null) continue; // not computed yet
+      out[(r.ticker || "").toUpperCase()] = { ticker: (r.ticker || "").toUpperCase(), beta: parseFloat(r.beta), sigma: parseFloat(r.sigma), mktAt: r.mkt_at };
+    }
+  } catch {
+    /* column/table may not exist yet → treat as empty cache */
+  }
+  return out;
+}
+
+// Upsert beta/sigma/mkt_at for a set of tickers, preserving the agent's other columns.
+export async function setMarketStats(rows: Array<{ ticker: string; beta: number; sigma: number; mktAt: string }>): Promise<void> {
+  if (!rows.length) return;
+  await ensureAssetsMarketCols();
+  await pipeline(
+    rows.map((r) => ({
+      type: "execute" as const,
+      stmt: {
+        sql: "INSERT INTO assets (ticker, beta, sigma, mkt_at) VALUES (?, ?, ?, ?) ON CONFLICT(ticker) DO UPDATE SET beta=excluded.beta, sigma=excluded.sigma, mkt_at=excluded.mkt_at",
+        args: [typed(r.ticker.toUpperCase()), typed(r.beta), typed(r.sigma), typed(r.mktAt)],
+      },
+    })),
+  );
+}
+
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
 // sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
 // new user?" signal and powers the backend monitoring of who has signed in.

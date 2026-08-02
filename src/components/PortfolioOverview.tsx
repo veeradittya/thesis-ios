@@ -15,7 +15,7 @@ import {
   YAxis,
 } from "recharts";
 import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
-import { computeFrontier, interpretation, RISK_FREE, type FrontierResult } from "@/lib/portfolioTheory";
+import { computeFrontier, interpretation, RISK_FREE, type FrontierResult, type MarketData } from "@/lib/portfolioTheory";
 import type { ParsedHolding } from "@/lib/parsePortfolio";
 
 const FRONTIER = "#8fb3e0"; // efficient-frontier curve (soft blue)
@@ -60,7 +60,30 @@ function niceAxis(min: number, max: number): { domain: [number, number]; ticks: 
 // `user` is the signed-in id: when present we prefer the agent's daily plain-language overview (written to
 // portfolio_analytics each morning) over the deterministic client read. Guests/demo have no user → client read.
 export function PortfolioOverview({ holdings, user }: { holdings: ParsedHolding[]; user?: string }) {
-  const result = useMemo(() => computeFrontier(holdings.map((h) => ({ ticker: h.ticker, weight: h.weight }))), [holdings]);
+  // Real market stats (β/σ) for the held tickers, cached server-side and refreshed when holdings change.
+  // Fed into computeFrontier so the correlation matrix + volatilities are real; absent tickers fall back
+  // to the illustrative model. Keyed on the ticker SET (not weights — correlations don't depend on weight).
+  const tickerKey = useMemo(
+    () => [...new Set(holdings.map((h) => (h.ticker || "").toUpperCase()).filter(Boolean))].sort().join(","),
+    [holdings],
+  );
+  const [marketData, setMarketData] = useState<MarketData | null>(null);
+  useEffect(() => {
+    if (!tickerKey) { setMarketData(null); return; }
+    let cancelled = false;
+    fetch(`/api/market-stats?tickers=${encodeURIComponent(tickerKey)}`)
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled || !d?.stats || d.sigmaMkt == null) return;
+        const sigma: Record<string, number> = {}, beta: Record<string, number> = {};
+        for (const [t, v] of Object.entries(d.stats as Record<string, { beta: number; sigma: number }>)) { sigma[t] = v.sigma; beta[t] = v.beta; }
+        setMarketData(Object.keys(sigma).length ? { sigma, beta, sigmaMkt: d.sigmaMkt } : null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [tickerKey]);
+
+  const result = useMemo(() => computeFrontier(holdings.map((h) => ({ ticker: h.ticker, weight: h.weight })), marketData), [holdings, marketData]);
   const clientInterp = useMemo(() => (result ? interpretation(result) : []), [result]);
   const [expanded, setExpanded] = useState(false);
   const [agentOverview, setAgentOverview] = useState<string | null>(null);
@@ -107,9 +130,13 @@ export function PortfolioOverview({ holdings, user }: { holdings: ParsedHolding[
       <AssetsMatrix result={result} />
       <Correlations result={result} />
 
-      {/* Model disclaimer, at the very end of the page. */}
+      {/* Model disclaimer, at the very end of the page. Reflects whether real market data is in use:
+          risk (volatility) + correlations come from the last year of daily prices when available;
+          expected return stays an illustrative assumption either way. */}
       <p className="px-1 pt-1 text-[11.5px] leading-snug text-white/35">
-        Illustrative model using assumed return, risk and correlations. Not live estimates or advice.
+        {marketData
+          ? "Risk and correlations are estimated from the last year of daily prices; expected return is an illustrative assumption. Not investment advice."
+          : "Illustrative model using assumed return, risk and correlations. Not live estimates or advice."}
       </p>
     </div>
   );

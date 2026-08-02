@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { syncHoldings, getHoldings, setPortfolioAnalytics } from "@/lib/turso";
 import { computeFrontier } from "@/lib/portfolioTheory";
+import { ensureMarketStats } from "@/lib/marketStats";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,8 +38,11 @@ export async function POST(req: Request) {
     const count = await syncHoldings(userId, holdings);
     // Recompute + store the modern-portfolio-theory analytics so the daily agent can read them and write
     // its overview. Best-effort — a failure here must never block the holdings sync. (null when <2 assets.)
+    // ensureMarketStats refreshes real β/σ from Alpaca ONLY for tickers that are new or stale (so a weight
+    // change or a removal fetches nothing); the correlation matrix is then derived from those real numbers.
     try {
-      const analytics = computeFrontier(holdings.map((h) => ({ ticker: h.ticker, weight: h.weight ?? null })));
+      const market = await ensureMarketStats(holdings.map((h) => h.ticker).filter(Boolean));
+      const analytics = computeFrontier(holdings.map((h) => ({ ticker: h.ticker, weight: h.weight ?? null })), market);
       await setPortfolioAnalytics(userId, analytics);
     } catch {}
     return NextResponse.json({ ok: true, count });

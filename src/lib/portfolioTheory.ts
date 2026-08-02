@@ -53,6 +53,19 @@ export interface AssetStat {
   minWeight: number; // min weight across the efficient frontier
   maxWeight: number; // max weight across the efficient frontier
 }
+// Real market inputs (from Alpaca, cached per ticker) that override the illustrative stand-ins:
+// per-ticker annualized volatility + beta-to-market, and the market's own annualized volatility.
+// A single-factor (market) model then implies each pairwise correlation, so we store O(N) numbers
+// (β, σ per ticker) instead of an N×N matrix or any price history. Any ticker absent here falls back
+// to the illustrative assumptions, so partial coverage is fine.
+export interface MarketData {
+  sigma: Record<string, number>; // annualized volatility per ticker
+  beta: Record<string, number>; // beta to the market per ticker
+  sigmaMkt: number; // annualized market (SPY) volatility
+}
+
+const clamp = (x: number, lo: number, hi: number) => (x < lo ? lo : x > hi ? hi : x);
+
 export interface FrontierPoint { risk: number; ret: number }
 export interface FrontierResult {
   tickers: string[];
@@ -86,8 +99,13 @@ function invert(m: number[][]): number[][] {
 const matVec = (M: number[][], v: number[]) => M.map((row) => row.reduce((s, x, j) => s + x * v[j], 0));
 const dot = (a: number[], v: number[]) => a.reduce((s, x, j) => s + x * v[j], 0);
 
-// Build the full mean-variance model + efficient frontier for a set of weighted holdings.
-export function computeFrontier(holdings: Array<{ ticker: string; weight: number | null }>): FrontierResult | null {
+// Build the full mean-variance model + efficient frontier for a set of weighted holdings. When
+// `market` is supplied, per-ticker volatility and pairwise correlations use real (Alpaca-derived)
+// numbers; anything missing falls back to the illustrative stand-ins, so partial coverage is safe.
+export function computeFrontier(
+  holdings: Array<{ ticker: string; weight: number | null }>,
+  market?: MarketData | null,
+): FrontierResult | null {
   const rows = holdings
     .filter((h) => h.ticker)
     .map((h) => ({ ticker: h.ticker.toUpperCase(), weight: Math.max(0, h.weight ?? 0) }));
@@ -95,13 +113,22 @@ export function computeFrontier(holdings: Array<{ ticker: string; weight: number
 
   const tickers = rows.map((r) => r.ticker);
   const n = tickers.length;
-  const mu = tickers.map((t) => cma(t).mu);
-  const sigma = tickers.map((t) => cma(t).sigma);
+  const mu = tickers.map((t) => cma(t).mu); // expected return stays illustrative (historical mean is too noisy)
+  const sigma = tickers.map((t) => market?.sigma[t] ?? cma(t).sigma); // real volatility when known
   const wsum = rows.reduce((s, r) => s + r.weight, 0) || 1;
   const weights = rows.map((r) => r.weight / wsum); // normalize to sum 1
 
-  // correlation + covariance matrices
-  const C = tickers.map((a) => tickers.map((b) => corr(a, b)));
+  // Pairwise correlation: single-factor implied from real betas when both are known
+  // (corr = βa·βb·σmkt² / (σa·σb), clamped away from ±1 so the covariance stays invertible),
+  // else the illustrative lookup. Diagonal is 1.
+  const sm = market?.sigmaMkt;
+  const corrOf = (a: string, b: string): number => {
+    if (a === b) return 1;
+    const ba = market?.beta[a], bb = market?.beta[b], sa = market?.sigma[a], sb = market?.sigma[b];
+    if (ba != null && bb != null && sa && sb && sm) return clamp((ba * bb * sm * sm) / (sa * sb), -0.95, 0.95);
+    return corr(a, b);
+  };
+  const C = tickers.map((a) => tickers.map((b) => corrOf(a, b)));
   const cov = tickers.map((_, i) => tickers.map((__, j) => C[i][j] * sigma[i] * sigma[j]));
   const inv = invert(cov);
 

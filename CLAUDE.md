@@ -65,8 +65,16 @@ The **Overview** sub-tab of the dashboard (`src/components/PortfolioOverview.tsx
 client-side render of Markowitz mean-variance theory over the ledger's **weights**: an allocation ring
 (asset/sector), a Markowitz efficient frontier (pinch-zoomable), per-asset expected-return/risk/Sharpe, and a
 correlation matrix — all computed by `src/lib/portfolioTheory.ts` (`computeFrontier`). The math runs off asset
-**weights only** (no shares/price); the illustrative per-asset return/vol/correlation assumptions are
-deterministic stand-ins the agent refines. Guests see the fixed demo; signed-in users see their own holdings.
+**weights only** (no shares/price). **Real market inputs:** per-asset volatility (σ) and the pairwise
+correlations are REAL — computed from ~1yr of Alpaca daily bars via a single-factor (market/SPY) model:
+`src/lib/marketStats.ts` (`ensureMarketStats`) caches β + σ per ticker on the shared `assets` row
+(`beta`,`sigma`,`mkt_at`), storing only those O(N) numbers, never any price series. Correlation is then implied
+as `βa·βb·σmkt²/(σa·σb)`. The cache is refreshed lazily on holdings change — `/api/portfolio/sync` calls
+`ensureMarketStats` which fetches Alpaca ONLY for new/stale tickers (a weight edit or removal fetches nothing;
+correlations don't depend on weight), so the first person to hold a ticker pays one sub-second fetch and everyone
+after hits the cache. The client reads the cache via `/api/market-stats?tickers=` and feeds it into
+`computeFrontier`; expected return (μ) stays an illustrative stand-in (historical mean is too noisy). Any ticker
+not yet cached falls back to the illustrative assumptions. Guests see the fixed demo; signed-in users see their own holdings.
 The short plain-language read at the top comes from the agent (`portfolio_analytics.ai_overview`) when present,
 else the deterministic `interpretation()` in `portfolioTheory.ts`. **Weight-only model:** every holding carries
 a weight (a percent, stored as a 0..1 fraction) — it is the single per-holding input in onboarding and both
