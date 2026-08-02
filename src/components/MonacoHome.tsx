@@ -197,10 +197,14 @@ type ThesisWindow = Window & {
   __thesisNativeChrome?: boolean;
   __thesisSetTab?: (tab: string) => void;
   __thesisSetDashTab?: (sub: string) => void;
+  // Face ID app-lock: the shell publishes this on every load (available === true only on a real device
+  // with biometrics/passcode set), and applies a toggle on the next launch. Toggling posts a boolean.
+  __thesisAppLock?: { available?: boolean; enabled?: boolean };
   webkit?: {
     messageHandlers?: {
       thesisNav?: { postMessage: (m: unknown) => void };
       thesisChrome?: { postMessage: (m: unknown) => void };
+      thesisSetAppLock?: { postMessage: (m: unknown) => void };
     };
   };
 };
@@ -264,6 +268,7 @@ export function MonacoHome() {
   const [acctMenu, setAcctMenu] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false); // desktop: sign-in chooser modal (Google + Apple)
   const [signupDismissed, setSignupDismissed] = useState(false); // logged-out sign-up gate → "later" dismisses
+  const [signupReady, setSignupReady] = useState(false); // sign-up gate waits 7s so a guest can explore first
   const [onboarding, setOnboarding] = useState(false); // new-user onboarding wizard (post sign-in / ?onboard=1)
   const [onboarded, setOnboarded] = useState(false); // completed onboarding → treat like a set-up account (editable portfolio)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
@@ -312,7 +317,7 @@ export function MonacoHome() {
   // one is up, and restore them when it closes. Fires on mount and whenever a takeover opens/closes.
   useEffect(() => {
     if (!nativeChrome || typeof window === "undefined") return;
-    const takeover = (status === "unauthenticated" && !signupDismissed) || onboarding;
+    const takeover = (status === "unauthenticated" && !signupDismissed && signupReady) || onboarding;
     (window as ThesisWindow).webkit?.messageHandlers?.thesisChrome?.postMessage({ hidden: takeover });
   }, [nativeChrome, status, signupDismissed, onboarding]);
 
@@ -517,6 +522,24 @@ export function MonacoHome() {
   const [acctDeleted, setAcctDeleted] = useState(false);
   const [acctDeleteError, setAcctDeleteError] = useState(false);
   const [acctView, setAcctView] = useState<"menu" | "about" | "delete">("menu"); // Account tab: stacked menu → sub-pages
+  // Face ID app-lock — a native toggle. Read the shell's published state on mount; only surfaced when the
+  // device supports it. Toggling posts a boolean to the shell, which applies it on the next app launch.
+  const [appLock, setAppLock] = useState<{ available: boolean; enabled: boolean }>({ available: false, enabled: false });
+  useEffect(() => {
+    const a = (window as ThesisWindow).__thesisAppLock;
+    setAppLock({ available: a?.available === true, enabled: a?.enabled === true });
+  }, []);
+  const toggleAppLock = () => {
+    const on = !appLock.enabled;
+    try { (window as ThesisWindow).webkit?.messageHandlers?.thesisSetAppLock?.postMessage(on); } catch {}
+    setAppLock((s) => ({ ...s, enabled: on }));
+  };
+  // Let a logged-out visitor explore for 7s before the sign-up gate slides in (rather than gating on load).
+  useEffect(() => {
+    if (status !== "unauthenticated") { setSignupReady(false); return; }
+    const t = setTimeout(() => setSignupReady(true), 7000);
+    return () => clearTimeout(t);
+  }, [status]);
   const handleDeleteAccount = async () => {
     setAcctDeleting(true);
     setAcctDeleteError(false);
@@ -1097,6 +1120,27 @@ export function MonacoHome() {
                         Log out
                       </button>
 
+                      {/* Face ID app-lock — only on a device that supports it. Applies on next launch. */}
+                      {appLock.available && (
+                        <div className="mt-2 flex items-start justify-between gap-4 rounded-2xl border border-white/[0.09] bg-white/[0.03] px-4 py-4">
+                          <div className="min-w-0">
+                            <p className="text-[15px] text-white">Lock with Face ID</p>
+                            <p className="mt-1 text-[13px] leading-snug text-[#8a8a8a]">
+                              Require Face ID each time you open the app so only you can see your portfolio.
+                            </p>
+                          </div>
+                          <button
+                            role="switch"
+                            aria-checked={appLock.enabled}
+                            aria-label="Lock Thesis with Face ID"
+                            onClick={toggleAppLock}
+                            className={`relative mt-0.5 h-[30px] w-[50px] shrink-0 rounded-full transition-colors ${appLock.enabled ? "bg-[#34C759]" : "bg-white/15"}`}
+                          >
+                            <span className={`absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-all ${appLock.enabled ? "left-[23px]" : "left-[3px]"}`} />
+                          </button>
+                        </div>
+                      )}
+
                       {/* Stacked options — each row opens its respective page. */}
                       <div className="mt-2 flex flex-col gap-2.5">
                         <button
@@ -1405,9 +1449,9 @@ export function MonacoHome() {
 
       {menu && <ContextMenu x={menu.vx} y={menu.vy} items={menuItems} onClose={() => setMenu(null)} />}
 
-      {/* Sign-up gate for logged-out visitors (once the session resolves to a guest). "Sign up now" flips
-          the card to the Google/Apple sign-in on the card itself; "later" dismisses it for this session. */}
-      {status === "unauthenticated" && !signupDismissed && (
+      {/* Sign-up gate for logged-out visitors — slides in 7s after the session resolves to a guest, so they
+          can explore first. "Sign up now" flips the card to Google/Apple sign-in; "later" dismisses it. */}
+      {status === "unauthenticated" && !signupDismissed && signupReady && (
         <SignupScreen
           onLater={() => setSignupDismissed(true)}
           onSignedIn={() => { setSignupDismissed(true); setOnboarding(true); }}

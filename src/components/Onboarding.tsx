@@ -9,8 +9,10 @@ import { PortfolioLedger } from "@/components/PortfolioLedger";
 // card): each question is a full-height section, dimmed until it's active — the Daily-Briefing reveal —
 // and pressing Continue auto-scrolls to the next one. Collected profile is handed back via onComplete.
 //
-// Native permission steps (notifications, Face ID) postMessage to iOS-shell bridges when present and fall
-// back to no-ops in the browser — the shell must implement `thesisEnableNotifications`/`thesisEnableFaceID`.
+// Native permission steps postMessage to iOS-shell bridges when present and fall back to no-ops in the
+// browser. Notifications → `thesisEnableNotifications`. Face ID app-lock → `thesisSetAppLock` (boolean):
+// the shell publishes `window.__thesisAppLock = { available, enabled }` on every load; the Face ID step is
+// shown ONLY when `available` (a real device with biometrics), and the change applies on the next launch.
 
 export interface OnboardingProfile {
   name: string;
@@ -50,6 +52,23 @@ function nativeBridge(name: string, payload: Record<string, unknown> = {}): bool
     if (h) { h.postMessage(payload); return true; }
   } catch {}
   return false;
+}
+
+// Face ID app-lock: a NATIVE toggle owned by the iOS shell. It publishes `window.__thesisAppLock`
+// {available, enabled} on every page load (available === true only on a real device with biometrics/
+// passcode set — false on desktop web and the simulator), and applies a change on the NEXT app launch.
+// Toggling posts a BOOLEAN to `thesisSetAppLock` (not an object → nativeBridge above can't send it).
+type AppLock = { available: boolean; enabled: boolean };
+function readAppLock(): AppLock {
+  if (typeof window === "undefined") return { available: false, enabled: false };
+  const a = (window as unknown as { __thesisAppLock?: Partial<AppLock> }).__thesisAppLock;
+  return { available: a?.available === true, enabled: a?.enabled === true };
+}
+function setAppLockNative(on: boolean) {
+  try {
+    (window as unknown as { webkit?: { messageHandlers?: { thesisSetAppLock?: { postMessage: (m: unknown) => void } } } })
+      .webkit?.messageHandlers?.thesisSetAppLock?.postMessage(on);
+  } catch {}
 }
 
 const emptyLedger = (name: string): ParsedPortfolio => ({
@@ -131,21 +150,30 @@ export function Onboarding({
   const [openAsset, setOpenAsset] = useState<string | null>(null);
   const [showNameContinue, setShowNameContinue] = useState(false); // latches true at 3+ letters, then persists
   const [riskTouched, setRiskTouched] = useState(false); // Continue on the risk page appears once the slider is touched
+  const [appLock, setAppLock] = useState<AppLock>(readAppLock); // native Face ID lock (available/enabled)
   const briefHours = useMemo(hoursUntilFirstBrief, []);
 
   const holdings = ledger.holdings.filter((h) => h.ticker);
 
-  // Continue-driven navigation: advance the active section and smooth-scroll it to the top.
-  const goTo = (i: number) => {
-    const c = Math.max(0, Math.min(STEPS.length - 1, i));
+  // The ordered raw step indices we actually render: the Face ID step is dropped entirely unless the
+  // native shell reports biometrics are available (so desktop web / simulator never see it).
+  const visible = useMemo(
+    () => STEPS.map((_, i) => i).filter((i) => STEPS[i] !== "faceid" || appLock.available),
+    [appLock.available],
+  );
+
+  // Continue-driven navigation: advance to the next VISIBLE section and smooth-scroll it to the top.
+  const goTo = (raw: number) => {
+    const c = Math.max(0, Math.min(STEPS.length - 1, raw));
     setActive(c);
     requestAnimationFrame(() => secRefs.current[c]?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
-  const next = () => goTo(active + 1);
-  const back = () => (active === 0 ? onClose() : goTo(active - 1));
+  const next = () => { const pos = visible.indexOf(active); goTo(visible[Math.min(visible.length - 1, pos + 1)]); };
+  const back = () => { const pos = visible.indexOf(active); if (pos <= 0) return onClose(); goTo(visible[pos - 1]); };
+  const enableFaceId = () => { setAppLockNative(true); setAppLock((s) => ({ ...s, enabled: true })); next(); };
 
   const finish = () =>
-    onComplete({ name: name.trim(), ledger, portfolioThesis: portfolioThesis.trim(), risk, notifications: true, faceId: true });
+    onComplete({ name: name.trim(), ledger, portfolioThesis: portfolioThesis.trim(), risk, notifications: true, faceId: appLock.enabled });
 
   const setAssetThesis = (ticker: string, thesis: string) =>
     setLedger((p) => ({ ...p, holdings: p.holdings.map((h) => (h.ticker === ticker ? { ...h, thesis } : h)) }));
@@ -330,14 +358,15 @@ export function Onboarding({
             </div>
           ))}
 
-          {/* 7) FACE ID */}
-          {sec(6, (
+          {/* 7) FACE ID — only rendered when the native shell reports biometrics are available */}
+          {appLock.available && sec(6, (
             <div className="flex flex-col items-center text-center">
               <div className="text-[46px]">🔒</div>
-              <h1 className={`mt-5 ${title}`}>Lock it with Face ID</h1>
-              <p className="mt-3 max-w-[320px] text-[15px] leading-snug text-white/60">Add a quick Face ID check so only you can open your portfolio.</p>
-              <button onClick={() => { nativeBridge("thesisEnableFaceID"); next(); }} className={`${glassBtn} mt-8`} style={glassBtnStyle}>Enable Face ID</button>
+              <h1 className={`mt-5 ${title}`}>Lock Thesis with Face ID</h1>
+              <p className="mt-3 max-w-[320px] text-[15px] leading-snug text-white/60">Require Face ID each time you open the app so only you can see your portfolio.</p>
+              <button onClick={enableFaceId} className={`${glassBtn} mt-8`} style={glassBtnStyle}>Enable Face ID</button>
               <button onClick={next} className="mt-4 text-[15px] font-medium text-white/55 transition-colors hover:text-white">Maybe later</button>
+              <p className="mt-6 text-[12px] text-white/35">Takes effect the next time you open Thesis.</p>
             </div>
           ))}
 
