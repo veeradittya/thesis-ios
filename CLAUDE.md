@@ -97,8 +97,13 @@ title "Thesis", body "Your brief for today is ready to view.", tap → opens the
 **Server/web pieces (this repo):** `push_tokens` table + `turso.ts` helpers · `POST /api/push/register`
 (user id from session, 401 for guests) · `PushRegistration.tsx` (mounted in `Providers`) · `?view=` deep
 link in `MonacoHome.tsx` · `apns.ts` (APNs HTTP/2 + ES256 JWT) · `POST /api/push/send-brief` (secret-gated,
-fresh-brief ≤3h discovery, dedupe, prune dead tokens) · Vercel cron 12:30 UTC Mon–Sat (`vercel.json`),
-timed ~1h after the 6:30 AM ET agent (11:30 UTC in winter) and skipping Sunday to match the agent.
+fresh-brief ≤3h discovery, prune dead tokens). **The CMA agent itself triggers this** — the run message
+(`prompts/thesis-risk-analyst.run-message.md` → deployment `initial_events`) ends by POSTing
+`/api/push/send-brief` with header `x-push-secret: $PUSH_SEND_SECRET` right after all memos are written.
+This fires the notification exactly when the brief is actually ready (no fixed-UTC cron, no DST drift, never
+on a no-run day). `PUSH_SEND_SECRET` is injected from the agent's **vault** (env-var credential, host-scoped
+to `betathesis.com`, header-only); it must equal the app's prod `PUSH_SEND_SECRET`. `vercel.json` has NO
+cron anymore (`crons: []`).
 
 **Contracts the native app depends on — DO NOT break:**
 - `window.__thesisRegisterPushToken(token, 'ios')` must stay defined (POSTs the APNs token to
@@ -113,10 +118,13 @@ timed ~1h after the 6:30 AM ET agent (11:30 UTC in winter) and skipping Sunday t
    real send once APNs env is set: `POST /api/push/send-brief` with header `x-push-secret: <PUSH_SEND_SECRET>`
    should return `targets ≥ 1` for a user with a fresh brief. If the agent writes a non-ISO or timezone-less
    timestamp, the 3h freshness window will misbehave.
-2. Reliability: the 12:30 UTC cron fires ~1h after the 6:30 AM ET agent in winter (EST, 11:30 UTC start);
-   if a run runs long, those users are missed (cron is one-shot, fixed-UTC so the offset shifts ±1h across
-   DST). The robust fix is to have the CMA agent POST `/api/push/send-brief` at the end of its run,
-   instead of / in addition to the cron.
+2. `PUSH_SEND_SECRET` must be registered in the agent's vault (`vlt_011CdMP95g65gaKgcTVfttiz`) as an
+   `environment_variable` credential (`secret_name: PUSH_SEND_SECRET`, host-scoped to `betathesis.com`,
+   header injection) with the SAME value as the app's prod env, or the agent's end-of-run POST 401s and no
+   notification fires. Add it in the Console vault or via `POST /v1/vaults/{id}/credentials`.
+3. Single point of failure: since the cron is gone, if a run dies before its final POST, that day's users get
+   no notification. If a safety net is wanted, add per-user/day dedupe to `send-brief` and a LATE fallback
+   cron (without dedupe, a fallback would double-notify).
 
 **Delivery dependency (not code):** real pushes need the PAID Apple Developer account's APNs key. Env
 (Prod+Preview): `APNS_KEY` (.p8 text), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (= the app's bundle id),
