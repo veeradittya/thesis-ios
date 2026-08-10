@@ -21,7 +21,8 @@ The complete required-key list with placeholders is in `.env.production.example`
 The **Daily Briefing** card (`src/components/ThesisMonitorCard.tsx`; first card, desktop + mobile) is **not**
 an on-open LLM call. It reads pre-computed rows from **Turso** (libSQL) that a **Claude Managed Agent (CMA)**
 writes once a day. The agent (`thesis-risk-analyst`, Opus 4.8 **medium** effort) runs on a scheduled
-deployment (cron `0 8 * * *` America/New_York) plus manual runs, in an Anthropic-hosted sandbox (bash +
+deployment (cron `30 6 * * 1-6` America/New_York — 6:30 AM ET, Mon–Sat; NO Sunday run since markets are
+closed all weekend and Saturday's run already covers Friday's close) plus manual runs, in an Anthropic-hosted sandbox (bash +
 Python + web_search/web_fetch), with a persistent memory store and a vault holding the Oddpool + Turso creds.
 
 **How the analysis is generated — ONE agent, TWO phases per run (no separate agent for the portfolio level):**
@@ -96,7 +97,8 @@ title "Thesis", body "Your brief for today is ready to view.", tap → opens the
 **Server/web pieces (this repo):** `push_tokens` table + `turso.ts` helpers · `POST /api/push/register`
 (user id from session, 401 for guests) · `PushRegistration.tsx` (mounted in `Providers`) · `?view=` deep
 link in `MonacoHome.tsx` · `apns.ts` (APNs HTTP/2 + ES256 JWT) · `POST /api/push/send-brief` (secret-gated,
-fresh-brief ≤3h discovery, dedupe, prune dead tokens) · daily Vercel cron 13:30 UTC (`vercel.json`).
+fresh-brief ≤3h discovery, dedupe, prune dead tokens) · Vercel cron 12:30 UTC Mon–Sat (`vercel.json`),
+timed ~1h after the 6:30 AM ET agent (11:30 UTC in winter) and skipping Sunday to match the agent.
 
 **Contracts the native app depends on — DO NOT break:**
 - `window.__thesisRegisterPushToken(token, 'ios')` must stay defined (POSTs the APNs token to
@@ -111,9 +113,10 @@ fresh-brief ≤3h discovery, dedupe, prune dead tokens) · daily Vercel cron 13:
    real send once APNs env is set: `POST /api/push/send-brief` with header `x-push-secret: <PUSH_SEND_SECRET>`
    should return `targets ≥ 1` for a user with a fresh brief. If the agent writes a non-ISO or timezone-less
    timestamp, the 3h freshness window will misbehave.
-2. Reliability: the 13:30 UTC cron fires only ~30 min after the 8 AM ET agent in winter (EST); if the agent
-   run runs long, those users are missed (cron is one-shot). Consider having the CMA agent POST
-   `/api/push/send-brief` at the end of its run, instead of / in addition to the cron.
+2. Reliability: the 12:30 UTC cron fires ~1h after the 6:30 AM ET agent in winter (EST, 11:30 UTC start);
+   if a run runs long, those users are missed (cron is one-shot, fixed-UTC so the offset shifts ±1h across
+   DST). The robust fix is to have the CMA agent POST `/api/push/send-brief` at the end of its run,
+   instead of / in addition to the cron.
 
 **Delivery dependency (not code):** real pushes need the PAID Apple Developer account's APNs key. Env
 (Prod+Preview): `APNS_KEY` (.p8 text), `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_BUNDLE_ID` (= the app's bundle id),
