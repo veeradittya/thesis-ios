@@ -102,7 +102,8 @@ fresh-brief ≤3h discovery, prune dead tokens). **The CMA agent itself triggers
 `/api/push/send-brief` with header `x-push-secret: $PUSH_SEND_SECRET` right after all memos are written.
 This fires the notification exactly when the brief is actually ready (no fixed-UTC cron, no DST drift, never
 on a no-run day). `PUSH_SEND_SECRET` is injected from the agent's **vault** (env-var credential, host-scoped
-to `betathesis.com`, header-only); it must equal the app's prod `PUSH_SEND_SECRET`. `vercel.json` has NO
+to `thesis-ios.vercel.app` — the Vercel deployment that hosts `send-brief` + the APNs env, NOT the anton
+front end — header-only); it must equal that Vercel deployment's `PUSH_SEND_SECRET`. `vercel.json` has NO
 cron anymore (`crons: []`).
 
 **Contracts the native app depends on — DO NOT break:**
@@ -119,9 +120,9 @@ cron anymore (`crons: []`).
    should return `targets ≥ 1` for a user with a fresh brief. If the agent writes a non-ISO or timezone-less
    timestamp, the 3h freshness window will misbehave.
 2. `PUSH_SEND_SECRET` must be registered in the agent's vault (`vlt_011CdMP95g65gaKgcTVfttiz`) as an
-   `environment_variable` credential (`secret_name: PUSH_SEND_SECRET`, host-scoped to `betathesis.com`,
-   header injection) with the SAME value as the app's prod env, or the agent's end-of-run POST 401s and no
-   notification fires. Add it in the Console vault or via `POST /v1/vaults/{id}/credentials`.
+   `environment_variable` credential (`secret_name: PUSH_SEND_SECRET`, host-scoped to `thesis-ios.vercel.app`,
+   header injection) with the SAME value as that Vercel deployment's env, or the agent's end-of-run POST 401s
+   and no notification fires. Add it in the Console vault or via `POST /v1/vaults/{id}/credentials`.
 3. Single point of failure: since the cron is gone, if a run dies before its final POST, that day's users get
    no notification. If a safety net is wanted, add per-user/day dedupe to `send-brief` and a LATE fallback
    cron (without dedupe, a fallback would double-notify).
