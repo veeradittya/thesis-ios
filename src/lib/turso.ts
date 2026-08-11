@@ -248,6 +248,41 @@ export async function setMarketStats(rows: Array<{ ticker: string; beta: number;
   );
 }
 
+// ── Reddit social-listening snapshots ──────────────────────────────────────────────────────────
+// Compact, derived records only. Raw Reddit posts/comments stay in the research collector and are
+// never copied into the app database. The ingestion route replaces each ticker atomically by key.
+export async function getRedditSocialRows(tickers: string[]): Promise<string[]> {
+  const uniq = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  try {
+    const where = uniq.length ? ` WHERE ticker IN (${uniq.map(() => "?").join(",")})` : "";
+    const rows = await query(`SELECT payload FROM reddit_social_snapshots${where} ORDER BY mentions DESC`, uniq);
+    return rows.map((r) => r.payload).filter((v): v is string => Boolean(v));
+  } catch {
+    return []; // table does not exist until the first successful publication
+  }
+}
+
+export async function putRedditSocialRows(rows: Array<{ ticker: string; mentions: number; generatedAt: string; payload: string }>): Promise<void> {
+  if (!rows.length) return;
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: "CREATE TABLE IF NOT EXISTS reddit_social_snapshots (ticker TEXT PRIMARY KEY, mentions INTEGER NOT NULL, generated_at TEXT NOT NULL, payload TEXT NOT NULL)",
+        args: [],
+      },
+    },
+    ...rows.map((row) => ({
+      type: "execute" as const,
+      stmt: {
+        sql: `INSERT INTO reddit_social_snapshots (ticker, mentions, generated_at, payload) VALUES (?,?,?,?)
+              ON CONFLICT(ticker) DO UPDATE SET mentions=excluded.mentions, generated_at=excluded.generated_at, payload=excluded.payload`,
+        args: [typed(row.ticker), typed(row.mentions), typed(row.generatedAt), typed(row.payload)],
+      },
+    })),
+  ]);
+}
+
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
 // sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
 // new user?" signal and powers the backend monitoring of who has signed in.

@@ -35,6 +35,7 @@ import { ThesisIntro } from "@/components/ThesisIntro";
 import { SignupScreen, DEV_SKIP_AUTH } from "@/components/SignupScreen";
 import { Onboarding } from "@/components/Onboarding";
 import { FirstBriefWaiting } from "@/components/FirstBriefWaiting";
+import { RedditSocialListening } from "@/components/RedditSocialListening";
 
 // Bump when the default seed changes so stale localStorage ledgers don't override the new demo.
 const GUEST_LEDGER_KEY = "thesis.guest.ledger.v2";
@@ -312,6 +313,9 @@ export function MonacoHome() {
       const q = new URLSearchParams(window.location.search);
       const v = q.get("view");
       if (v === "brief" || v === "dashboard" || v === "portfolio") setMobilePage(v);
+      const dashboard = q.get("dash");
+      const dashboardMap: Record<string, DashTab> = { overview: "overview", analyst: "extra", news: "news", markets: "markets" };
+      if (dashboard && dashboardMap[dashboard]) setDashTab(dashboardMap[dashboard]);
       if (q.get("onboard") === "1") setOnboarding(true);
     } catch {}
   }, []);
@@ -1370,6 +1374,7 @@ export function MonacoHome() {
                   portfolio's "Your Holdings" box). Card body is a shell for the sentiment content. */}
               {dashTab === "extra" && (
                 <>
+                  <RedditSocialListening tickers={ledger.holdings.map((holding) => holding.ticker)} />
                   <MarketHoursPill />
                   {ledger.holdings.map((h, i) => {
                     const sym = (h.ticker || "").trim().toUpperCase();
