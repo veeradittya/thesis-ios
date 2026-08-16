@@ -1318,8 +1318,8 @@ export function MonacoHome() {
               </div>
             ) : (
               // "Dashboard" tab — the sub-tab slider over the three sliding sub-tabs of content.
-              <div className={`flex flex-col gap-3.5 px-3.5 ${nativeChrome ? "pt-[calc(env(safe-area-inset-top)+64px)] pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pt-[calc(env(safe-area-inset-top)+16px)] pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
-              {/* Native shell draws its own Dashboard slider at the top; hide ours there. */}
+              <div className={`flex flex-col gap-3.5 px-3.5 ${nativeChrome ? "pt-[calc(env(safe-area-inset-top)+16px)] pb-[calc(env(safe-area-inset-bottom)+76px)]" : "pt-[calc(env(safe-area-inset-top)+16px)] pb-[calc(env(safe-area-inset-bottom)+96px)]"}`}>
+              {/* Native shell supplies its own Dashboard slider (now in the bottom collapsed nav); hide ours here. */}
               {!nativeChrome && <DashboardTabs active={dashTab} onChange={setDashTab} />}
               <>
 
