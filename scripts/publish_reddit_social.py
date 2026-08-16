@@ -92,8 +92,8 @@ def publish(endpoint: str, secret: str, snapshots: list[dict[str, Any]]) -> dict
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--analysis-dir", type=Path, default=DEFAULT_ANALYSIS)
-    parser.add_argument("--endpoint", default=os.getenv("REDDIT_INGEST_ENDPOINT", ""))
-    parser.add_argument("--secret", default=os.getenv("REDDIT_INGEST_SECRET", ""))
+    parser.add_argument("--endpoint", default=os.getenv("SOCIAL_INGEST_ENDPOINT", os.getenv("REDDIT_INGEST_ENDPOINT", "")))
+    parser.add_argument("--secret", default=os.getenv("SOCIAL_INGEST_SECRET", os.getenv("REDDIT_INGEST_SECRET", "")))
     parser.add_argument("--output", type=Path, help="Optionally write the compact JSON payload")
     parser.add_argument("--dry-run", action="store_true", help="Validate and print stats without posting")
     args = parser.parse_args()
@@ -106,7 +106,7 @@ def main() -> None:
     if args.dry_run:
         return
     if not args.endpoint or not args.secret:
-        raise SystemExit("REDDIT_INGEST_ENDPOINT and REDDIT_INGEST_SECRET are required unless --dry-run is used")
+        raise SystemExit("SOCIAL_INGEST_ENDPOINT and SOCIAL_INGEST_SECRET are required unless --dry-run is used")
     result = publish(args.endpoint, args.secret, snapshots)
     print(json.dumps(result, indent=2))
 

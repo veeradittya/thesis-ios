@@ -1,92 +1,660 @@
-[
-  {
-    "ticker": "NVDA",
-    "windowHours": 168,
-    "mentions": 1023,
-    "submissions": 85,
-    "comments": 938,
-    "uniqueAuthors": 710,
-    "uniqueThreads": 242,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of NVDA primarily centers on earnings, AI infrastructure exposure, and recent price action. Conversation is divided between bullish and bearish views, with investment arguments outweighing meme language.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  },
-  {
-    "ticker": "AAPL",
-    "windowHours": 168,
-    "mentions": 938,
-    "submissions": 65,
-    "comments": 873,
-    "uniqueAuthors": 668,
-    "uniqueThreads": 213,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of AAPL primarily centers on recent price action, earnings, and options positioning. Conversation is divided between bullish and bearish views, with trading arguments driving most engagement.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  },
-  {
-    "ticker": "MSFT",
-    "windowHours": 168,
-    "mentions": 949,
-    "submissions": 87,
-    "comments": 862,
-    "uniqueAuthors": 678,
-    "uniqueThreads": 273,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of MSFT primarily centers on AI and data-center exposure, earnings, and recent price action. Participants are split on valuation while remaining engaged with cloud growth.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  },
-  {
-    "ticker": "AMZN",
-    "windowHours": 168,
-    "mentions": 823,
-    "submissions": 87,
-    "comments": 736,
-    "uniqueAuthors": 629,
-    "uniqueThreads": 279,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of AMZN primarily centers on earnings, AI and data-center exposure, and recent price action. Conversation is divided between bullish and bearish views, with investment arguments driving most engagement.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  },
-  {
-    "ticker": "TSLA",
-    "windowHours": 168,
-    "mentions": 557,
-    "submissions": 30,
-    "comments": 527,
-    "uniqueAuthors": 458,
-    "uniqueThreads": 146,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of TSLA primarily centers on recent price action, options positioning, and earnings. Conversation is divided between bullish and bearish views, with trading arguments outweighing meme language.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  },
-  {
-    "ticker": "GOOGL",
-    "windowHours": 168,
-    "mentions": 1962,
-    "submissions": 121,
-    "comments": 1841,
-    "uniqueAuthors": 1274,
-    "uniqueThreads": 350,
-    "mentionChangePct": null,
-    "summary": "Reddit discussion of GOOGL primarily centers on AI and data-center exposure, earnings, and recent price action. Conversation is divided between bullish and bearish views, with valuation and cloud growth driving debate.",
-    "topSources": [],
-    "generatedAt": "2026-08-07T03:05:59.823827Z",
-    "windowStart": "2026-07-31T03:05:59.823827Z",
-    "windowEnd": "2026-08-07T03:05:59.823827Z"
-  }
-]
+{
+  "snapshots": [
+    {
+      "ticker": "GOOGL",
+      "windowHours": 168,
+      "mentions": 248,
+      "submissions": 14,
+      "comments": 234,
+      "uniqueAuthors": 212,
+      "uniqueThreads": 30,
+      "mentionChangePct": null,
+      "summary": "Attention centered on Berkshire’s reported accumulation of Google and on whether its vertically integrated AI stack, diversified businesses, and perceived moat explain that preference over other hyperscalers. Most comments were favorable—some called it the safest tech name or expected another leg higher—but one argued Berkshire was chasing AI late and noted its recent purchases were underwater; a separate capex thread raised questions about depreciation from the hyperscalers’ enormous infrastructure spending.",
+      "topSources": [
+        {
+          "subreddit": "StockMarket",
+          "title": "Why The US helping to Prop up Yen will end badly for all in involved",
+          "score": 1,
+          "url": "https://www.reddit.com/r/StockMarket/comments/1vpfsx5/why_the_us_helping_to_prop_up_yen_will_end_badly/"
+        },
+        {
+          "subreddit": "investing",
+          "title": "Treasury Direct is going to ID.me for login.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/investing/comments/1vpg919/treasury_direct_is_going_to_idme_for_login/"
+        },
+        {
+          "subreddit": "Daytrading",
+          "title": "What you see in the charts before getting into a trade?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/Daytrading/comments/1vpgeaa/what_you_see_in_the_charts_before_getting_into_a/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "NVDA",
+      "windowHours": 168,
+      "mentions": 74,
+      "submissions": 15,
+      "comments": 59,
+      "uniqueAuthors": 56,
+      "uniqueThreads": 30,
+      "mentionChangePct": null,
+      "summary": "Discussion focused on expectations for a pre-earnings run and on the unusually high gap and volatility risk around the shares; one options comment said one-month implied volatility remained below trailing realized volatility. The directional posts leaned hopeful or jokingly bullish, but several comparisons argued that Google and Amazon are developing proprietary chips specifically to reduce dependence on Nvidia, so confidence in a clear consensus is limited.",
+      "topSources": [
+        {
+          "subreddit": "options",
+          "title": "SPX is realizing 12.4 vol and the options market is only pricing 11.3",
+          "score": 1,
+          "url": "https://www.reddit.com/r/options/comments/1vpg0so/spx_is_realizing_124_vol_and_the_options_market/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "If you could only pick one of these, which would you choose and why?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgqyb/if_you_could_only_pick_one_of_these_which_would/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "AAPL",
+      "windowHours": 168,
+      "mentions": 63,
+      "submissions": 3,
+      "comments": 60,
+      "uniqueAuthors": 60,
+      "uniqueThreads": 12,
+      "mentionChangePct": null,
+      "summary": "Apple appeared mainly in comparisons surrounding Berkshire and Google, with commenters portraying the iPhone-plus-Gemini relationship as a possible gateway for everyday AI and noting Berkshire already holds a large Apple position. The disagreement was whether Google is truly safer than Apple’s hardware-centered franchise; another commenter said Apple had become overpriced and was therefore being trimmed, but the evidence contains little direct discussion of Apple’s own operating outlook.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "There's something wrong with my graph",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpiklp/theres_something_wrong_with_my_graph/"
+        },
+        {
+          "subreddit": "thetagang",
+          "title": "Daily r/thetagang Discussion Thread - What are your moves for today?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/thetagang/comments/1vplo0z/daily_rthetagang_discussion_thread_what_are_your/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "AMZN",
+      "windowHours": 168,
+      "mentions": 57,
+      "submissions": 5,
+      "comments": 52,
+      "uniqueAuthors": 50,
+      "uniqueThreads": 16,
+      "mentionChangePct": null,
+      "summary": "Amazon drew attention as an alternative to Google and as part of the hyperscaler capex buildout, with one commenter recently adding shares and others pointing to its retail marketplace, AWS, Anthropic partnership, Trainium chips, and heavy R&D spending. Critics emphasized thin retail margins, weaker software and frontier-model credentials, and slower cloud growth, while defenders said AWS had reaccelerated and that Annapurna Labs and Project Rainier meaningfully reduce Nvidia dependence.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "How are ppl modeling out the hyperscalers capex? (MSFT, AMZN, GOOGL, META)",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpgmxh/how_are_ppl_modeling_out_the_hyperscalers_capex/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "If you could only pick one of these, which would you choose and why?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgqyb/if_you_could_only_pick_one_of_these_which_would/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "MSFT",
+      "windowHours": 168,
+      "mentions": 45,
+      "submissions": 7,
+      "comments": 38,
+      "uniqueAuthors": 42,
+      "uniqueThreads": 16,
+      "mentionChangePct": null,
+      "summary": "Microsoft was discussed chiefly as a comparator to Google in debates about hyperscaler capex, enterprise resilience, diversification, and AI investments. Some saw its enterprise software and lack of search dependence as advantages and cited a good recent week, while others argued its diversification is weaker than Google’s and described its OpenAI, Anthropic, quantum, and fusion holdings as investments rather than operating diversity.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "How are ppl modeling out the hyperscalers capex? (MSFT, AMZN, GOOGL, META)",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpgmxh/how_are_ppl_modeling_out_the_hyperscalers_capex/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "If you could only pick one of these, which would you choose and why?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgqyb/if_you_could_only_pick_one_of_these_which_would/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "NFLX",
+      "windowHours": 168,
+      "mentions": 44,
+      "submissions": 2,
+      "comments": 42,
+      "uniqueAuthors": 40,
+      "uniqueThreads": 6,
+      "mentionChangePct": null,
+      "summary": "The main debate asked why Netflix does not command Spotify’s valuation despite greater revenue and profitability. Replies said their P/E multiples were already similar and argued Netflix faces higher, variable content costs and much heavier competition for subscription budgets; positive points about free cash flow and absolute profitability were offset by complaints about content quality and a cited 37% one-year decline.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "GOOG is the new AAPL",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vppdnk/goog_is_the_new_aapl/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Why doesn’t Netflix trade around Spotify’s valuation?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq0mx3/why_doesnt_netflix_trade_around_spotifys_valuation/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "After losing 1m. Decided to YOLO 340k on options",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq0oz7/after_losing_1m_decided_to_yolo_340k_on_options/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "TSLA",
+      "windowHours": 168,
+      "mentions": 34,
+      "submissions": 3,
+      "comments": 31,
+      "uniqueAuthors": 31,
+      "uniqueThreads": 13,
+      "mentionChangePct": null,
+      "summary": "Conversation concentrated on a possible Tesla–SpaceX merger, particularly Musk’s economic dilution and whether combining the companies would increase his voting control over Tesla and its anticipated robotics business. Broader tone was skeptical about Tesla’s valuation, aging vehicle lineup, and dependence on protection from Chinese EV competition, although other comments defended Musk’s record and expressed surprise that the stock was below $400.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "New option patch dropped: Expanded options hours 7:30 ET so you can ruin your life before work instead of during work.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpm0co/new_option_patch_dropped_expanded_options_hours/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "What Consensus Actually Requires: A Segment-by-Segment Teardown of Tesla's $400 Target",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpnypu/what_consensus_actually_requires_a/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "RDDT",
+      "windowHours": 168,
+      "mentions": 31,
+      "submissions": 3,
+      "comments": 28,
+      "uniqueAuthors": 31,
+      "uniqueThreads": 9,
+      "mentionChangePct": null,
+      "summary": "Reddit attracted enthusiasm around its addictive, differentiated community product, niche human-generated information, potential AI licensing deals, and speculative upside. Skeptics questioned whether it has a wide moat, can monetize anonymous users effectively, or can prevent Google answers, AI-generated content, bots, and platform deterioration from eroding traffic and quality; the records therefore show strong interest but unresolved business-model risks.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "why no-one talking about this?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpkb9l/why_noone_talking_about_this/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "Reddit Stock",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpowe9/reddit_stock/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "PLTR",
+      "windowHours": 168,
+      "mentions": 21,
+      "submissions": 3,
+      "comments": 18,
+      "uniqueAuthors": 18,
+      "uniqueThreads": 13,
+      "mentionChangePct": null,
+      "summary": "PLTR discussion emphasized its volatility, proprietary-data thesis, and role as an asset-light AI application company, with one options trader citing a roughly 30% move as evidence of the risk. Supporters said Palantir’s data moat could outperform infrastructure-heavy hyperscalers and celebrated its resistance to bearish calls, while others called it high quality but too richly priced and disputed whether a prominent short seller had actually lost money.",
+      "topSources": [
+        {
+          "subreddit": "options",
+          "title": "SPX is realizing 12.4 vol and the options market is only pricing 11.3",
+          "score": 1,
+          "url": "https://www.reddit.com/r/options/comments/1vpg0so/spx_is_realizing_124_vol_and_the_options_market/"
+        },
+        {
+          "subreddit": "investing",
+          "title": "Treasury Direct is going to ID.me for login.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/investing/comments/1vpg919/treasury_direct_is_going_to_idme_for_login/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "How are ppl modeling out the hyperscalers capex? (MSFT, AMZN, GOOGL, META)",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpgmxh/how_are_ppl_modeling_out_the_hyperscalers_capex/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "META",
+      "windowHours": 168,
+      "mentions": 21,
+      "submissions": 2,
+      "comments": 19,
+      "uniqueAuthors": 20,
+      "uniqueThreads": 9,
+      "mentionChangePct": null,
+      "summary": "Meta attention focused on cash generation, AI-related spending, and whether its dominant social platforms justify patience with heavy investment. Supporters praised Facebook and Instagram’s scale and argued AI is improving ads or could monetize excess compute, while critics said management burns cash on vanity projects and that Amazon offers stronger profits, leadership, and growth at a similar forward multiple.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "How are ppl modeling out the hyperscalers capex? (MSFT, AMZN, GOOGL, META)",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpgmxh/how_are_ppl_modeling_out_the_hyperscalers_capex/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "Reddit Stock",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpowe9/reddit_stock/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "MU",
+      "windowHours": 168,
+      "mentions": 21,
+      "submissions": 1,
+      "comments": 20,
+      "uniqueAuthors": 20,
+      "uniqueThreads": 7,
+      "mentionChangePct": null,
+      "summary": "MU posts reacted strongly against Michael Burry’s reported increased short, with commenters describing the stock as breaking out, expecting further technical gains, and arguing he had missed the semiconductor rally. A minority bubble argument questioned whether stacked AI suppliers can all sustain high margins and rapid growth, but the immediate tone was predominantly hostile to the short thesis.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "GOOG is the new AAPL",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vppdnk/goog_is_the_new_aapl/"
+        },
+        {
+          "subreddit": "stocks",
+          "title": "$ASTS and a Question Regarding Maintenance.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpr58r/asts_and_a_question_regarding_maintenance/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Michael Burry Loads Up On QQQ Puts, Boosts MU Short As He Braces For ‘Larger Fall’ — Here’s What He Did To NVDA, PLTR And TSLA",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vprhhd/michael_burry_loads_up_on_qqq_puts_boosts_mu/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "MSTR",
+      "windowHours": 168,
+      "mentions": 16,
+      "submissions": 2,
+      "comments": 14,
+      "uniqueAuthors": 14,
+      "uniqueThreads": 4,
+      "mentionChangePct": null,
+      "summary": "MSTR discussion revolved around its function as a Bitcoin proxy and a bearish forecast for a fall toward roughly $30–$40 as Bitcoin liquidity and technical conditions weaken. Bulls argued that any renewed Bitcoin upswing could produce outsized gains, while bears cited rejection near 100, a floor around 90.93, prior profitable puts, and late-stage “hyperwave” behavior; even skeptics of the bearish chart agreed the stock is largely driven by Bitcoin.",
+      "topSources": [
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Isn't buying MSTR LEAPS just free money?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpinnn/isnt_buying_mstr_leaps_just_free_money/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Why I Expect $MSTR at $40ish in 8-12 Weeks",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpiobs/why_i_expect_mstr_at_40ish_in_812_weeks/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Is this a sign?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpvyi4/is_this_a_sign/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "AMD",
+      "windowHours": 168,
+      "mentions": 11,
+      "submissions": 0,
+      "comments": 11,
+      "uniqueAuthors": 11,
+      "uniqueThreads": 3,
+      "mentionChangePct": null,
+      "summary": "AMD drew highly speculative short-term positioning, including calls for puts, hopes for a next-day pump, and one trader’s admission that a new all-in short may have been a mistake. Longer-term comments pointed to inference demand, x86’s relevance to automation, and past gains after bear cases failed, but the evidence offers no stable directional consensus beyond expectations for sharp, unpredictable moves.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "How did you stop falling for stock hype, and what research do you trust?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vq641l/how_did_you_stop_falling_for_stock_hype_and_what/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "What Are Your Moves Tomorrow, August 17, 2026",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq701m/what_are_your_moves_tomorrow_august_17_2026/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "Is Robotics the next big thing to come? In what company would you invest?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vq73l5/is_robotics_the_next_big_thing_to_come_in_what/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "HOOD",
+      "windowHours": 168,
+      "mentions": 10,
+      "submissions": 1,
+      "comments": 9,
+      "uniqueAuthors": 10,
+      "uniqueThreads": 8,
+      "mentionChangePct": null,
+      "summary": "Robinhood was discussed both as a popular retail brokerage and as a Reddit-favored speculative name. Comments credited it with widening access through low-cost investing and mentioned agentic accounts, while others explicitly framed Robinhood accounts as gambling vehicles or questioned platform features such as margin; evidence about HOOD’s underlying financial performance was absent.",
+      "topSources": [
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Equity options on specific assets will begin trading at 7:15 ET starting this Monday",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpkqtv/equity_options_on_specific_assets_will_begin/"
+        },
+        {
+          "subreddit": "thetagang",
+          "title": "Daily r/thetagang Discussion Thread - What are your moves for today?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/thetagang/comments/1vplo0z/daily_rthetagang_discussion_thread_what_are_your/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "New option patch dropped: Expanded options hours 7:30 ET so you can ruin your life before work instead of during work.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpm0co/new_option_patch_dropped_expanded_options_hours/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "DIS",
+      "windowHours": 168,
+      "mentions": 9,
+      "submissions": 1,
+      "comments": 8,
+      "uniqueAuthors": 9,
+      "uniqueThreads": 2,
+      "mentionChangePct": null,
+      "summary": "Disney appeared mostly as a symbol of discretionary spending in a retirement-savings debate, where some criticized repeated Disney World trips while others defended enjoying travel before age reduces that opportunity. The only business-specific thread concerned streaming competition: Disney+ was cited as one of several services making Netflix’s market harder, so there is too little direct evidence for a confident directional view on DIS.",
+      "topSources": [
+        {
+          "subreddit": "investing",
+          "title": "Anyone else shocked by the amount of people that have the means but dont invest or have retirement?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/investing/comments/1vpw0vo/anyone_else_shocked_by_the_amount_of_people_that/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Why doesn’t Netflix trade around Spotify’s valuation?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq0mx3/why_doesnt_netflix_trade_around_spotifys_valuation/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "ORCL",
+      "windowHours": 168,
+      "mentions": 7,
+      "submissions": 2,
+      "comments": 5,
+      "uniqueAuthors": 6,
+      "uniqueThreads": 5,
+      "mentionChangePct": null,
+      "summary": "Oracle discussion contrasted enthusiasm about recovery from a sharp drop with concerns about its balance sheet and legacy model. One holder expected substantial upside if AI spending succeeds and limited damage otherwise, while a critic described Oracle as fully leveraged and dependent on customer friction that AI could reduce; another comment identified Oracle and specialized cloud providers as competitors taking share.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "He told us.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vpmdu7/he_told_us/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "My feed’s an oracle.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq4acc/my_feeds_an_oracle/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "LLY",
+      "windowHours": 168,
+      "mentions": 7,
+      "submissions": 1,
+      "comments": 6,
+      "uniqueAuthors": 6,
+      "uniqueThreads": 2,
+      "mentionChangePct": null,
+      "summary": "Eli Lilly attention centered on the transformative user experience with Zepbound, the prospective retatrutide pipeline, oncology expansion, and the durability of GLP-1 demand. Skeptics argued that a roughly 40 P/E and trillion-dollar-plus valuation leave little room for patent cliffs or weaker pricing, while supporters said Lilly’s current earnings engine and pipeline justify a premium; comparisons with Novo’s former leadership tempered confidence.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "A biotech stock I think is currently UNDERVALUED and why: RARE",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vpt8ur/a_biotech_stock_i_think_is_currently_undervalued/"
+        },
+        {
+          "subreddit": "ValueInvesting",
+          "title": "Weight loss jab investment",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vq52ph/weight_loss_jab_investment/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "UBER",
+      "windowHours": 168,
+      "mentions": 5,
+      "submissions": 1,
+      "comments": 4,
+      "uniqueAuthors": 5,
+      "uniqueThreads": 5,
+      "mentionChangePct": null,
+      "summary": "Uber surfaced mainly in discussion of autonomous transport and intermediary business models rather than in a direct stock thesis. One commenter preferred Waymo’s private, consistent driverless experience and another argued even full displacement of Uber would contribute only modestly to Alphabet, while a separate comparison described Uber simply as an intermediary between customers and the final service; directional evidence is therefore very thin.",
+      "topSources": [
+        {
+          "subreddit": "stocks",
+          "title": "Why is Buffet & Abel aggressively accumulating so much Google but none of the other hyperscalers?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/stocks/comments/1vpgr1i/why_is_buffet_abel_aggressively_accumulating_so/"
+        },
+        {
+          "subreddit": "investing",
+          "title": "US homebuyers just hit a record low",
+          "score": 1,
+          "url": "https://www.reddit.com/r/investing/comments/1vpxuli/us_homebuyers_just_hit_a_record_low/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "Why doesn’t Netflix trade around Spotify’s valuation?",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq0mx3/why_doesnt_netflix_trade_around_spotifys_valuation/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "NVO",
+      "windowHours": 168,
+      "mentions": 4,
+      "submissions": 0,
+      "comments": 4,
+      "uniqueAuthors": 4,
+      "uniqueThreads": 1,
+      "mentionChangePct": null,
+      "summary": "Novo Nordisk discussion weighed declining pricing power, compressed revenue, a reportedly weak pipeline, and a setback involving a heart drug against claims that it is quietly gaining ground in oral obesity treatments. Commenters also debated whether patents and regulatory approval form an adequate moat, while Novo’s more-than-70% decline from its cited 2024 peak served as a warning against assuming today’s category leader will remain dominant.",
+      "topSources": [
+        {
+          "subreddit": "ValueInvesting",
+          "title": "Weight loss jab investment",
+          "score": 1,
+          "url": "https://www.reddit.com/r/ValueInvesting/comments/1vq52ph/weight_loss_jab_investment/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    },
+    {
+      "ticker": "ABNB",
+      "windowHours": 168,
+      "mentions": 3,
+      "submissions": 1,
+      "comments": 2,
+      "uniqueAuthors": 3,
+      "uniqueThreads": 3,
+      "mentionChangePct": null,
+      "summary": "Airbnb received almost no investment-focused discussion: one comment grouped it with companies said to have posted record quarterly revenue, while other mentions merely referred to staying in or renting out an Airbnb. The supplied records therefore indicate incidental brand visibility and one favorable operating claim, but not enough evidence to establish broader sentiment toward ABNB.",
+      "topSources": [
+        {
+          "subreddit": "wallstreetbets",
+          "title": "I love when my feed talks to me.",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq4dcq/i_love_when_my_feed_talks_to_me/"
+        },
+        {
+          "subreddit": "Daytrading",
+          "title": "Daytrading with slow internet",
+          "score": 1,
+          "url": "https://www.reddit.com/r/Daytrading/comments/1vq6kl5/daytrading_with_slow_internet/"
+        },
+        {
+          "subreddit": "wallstreetbets",
+          "title": "What Are Your Moves Tomorrow, August 17, 2026",
+          "score": 1,
+          "url": "https://www.reddit.com/r/wallstreetbets/comments/1vq701m/what_are_your_moves_tomorrow_august_17_2026/"
+        }
+      ],
+      "generatedAt": "2026-08-16T22:15:40.384669Z",
+      "windowStart": "2026-08-09T22:15:40.384669Z",
+      "windowEnd": "2026-08-16T22:15:40.384669Z"
+    }
+  ]
+}

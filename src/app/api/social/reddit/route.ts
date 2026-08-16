@@ -30,7 +30,10 @@ export async function GET(req: Request) {
       return [];
     }
   });
-  const fallback = fixture.flatMap((row) => {
+  const fixtureValues: unknown[] = Array.isArray(fixture)
+    ? fixture
+    : ((fixture as unknown as { snapshots?: unknown[] }).snapshots || []);
+  const fallback = fixtureValues.flatMap((row) => {
     const snapshot = normalizeRedditSnapshot(row);
     return snapshot ? [snapshot] : [];
   });
@@ -44,7 +47,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const secret = process.env.REDDIT_INGEST_SECRET;
+  const secret = process.env.SOCIAL_INGEST_SECRET || process.env.REDDIT_INGEST_SECRET;
   const supplied = req.headers.get("authorization");
   if (!secret || supplied !== `Bearer ${secret}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

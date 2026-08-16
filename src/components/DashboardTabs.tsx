@@ -8,7 +8,7 @@ export type DashTab = "overview" | "news" | "markets" | "extra";
 
 const TABS: { id: DashTab; label: string }[] = [
   { id: "overview", label: "Overview" },
-  { id: "extra", label: "Analyst Sentiment" },
+  { id: "extra", label: "Hivemind" },
   { id: "news", label: "News" },
   { id: "markets", label: "Prediction Markets" },
 ];

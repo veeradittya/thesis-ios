@@ -283,6 +283,38 @@ export async function putRedditSocialRows(rows: Array<{ ticker: string; mentions
   ]);
 }
 
+export async function getYouTubeSocialRows(tickers: string[]): Promise<string[]> {
+  const uniq = [...new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))];
+  try {
+    const where = uniq.length ? ` WHERE ticker IN (${uniq.map(() => "?").join(",")})` : "";
+    const rows = await query(`SELECT payload FROM youtube_social_snapshots${where} ORDER BY generated_at DESC`, uniq);
+    return rows.map((row) => row.payload).filter((value): value is string => Boolean(value));
+  } catch {
+    return [];
+  }
+}
+
+export async function putYouTubeSocialRows(rows: Array<{ ticker: string; generatedAt: string; payload: string }>): Promise<void> {
+  if (!rows.length) return;
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: "CREATE TABLE IF NOT EXISTS youtube_social_snapshots (ticker TEXT PRIMARY KEY, generated_at TEXT NOT NULL, payload TEXT NOT NULL)",
+        args: [],
+      },
+    },
+    ...rows.map((row) => ({
+      type: "execute" as const,
+      stmt: {
+        sql: `INSERT INTO youtube_social_snapshots (ticker, generated_at, payload) VALUES (?,?,?)
+              ON CONFLICT(ticker) DO UPDATE SET generated_at=excluded.generated_at,payload=excluded.payload`,
+        args: [typed(row.ticker), typed(row.generatedAt), typed(row.payload)],
+      },
+    })),
+  ]);
+}
+
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
 // sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
 // new user?" signal and powers the backend monitoring of who has signed in.

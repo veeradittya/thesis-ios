@@ -1,31 +1,39 @@
-# Reddit social-listening pipeline
+# Hivemind social-listening pipeline
 
-The app serves compact, derived seven-day Reddit snapshots from `GET /api/social/reddit`. Raw posts,
-comments, SQLite, CSV, and Parquet evidence stay on the research host and are never deployed to Vercel.
+Dashboard → Hivemind combines two compact public feeds:
 
-## Local UI development
+- `GET /api/social/reddit` serves seven-day discussion summaries and links to source threads.
+- `GET /api/social/youtube` serves videos published in the last 24 hours, transcript excerpts, and links to YouTube.
 
-With Turso unset, the API uses `src/data/reddit-social.fixture.json`. Run the normal app dev server and
-open Dashboard → Analyst Sentiment. The fixture is intentionally marked stale so the stale-data state is
-always exercised locally.
+Raw Reddit posts/comments and full YouTube transcripts remain on the research host. Only the compact
+snapshots are published to the app. When Turso is unavailable, the APIs fall back to the checked-in
+fixtures so local and preview builds remain usable.
+
+## Daily jobs on the research host
+
+The `herbert` crontab runs the Reddit pipeline at 04:05 and YouTube at 04:35 America/New_York. `flock`
+prevents overlapping runs. Logs and lock files live under `~/.local/state/hivemind/`.
+
+Reddit executes `/home/shared/LabDataP3/herbert/scripts/reddit_daily.sh`: it fetches exactly the previous
+24 hours, rebuilds the rolling seven-day analysis, asks the locally authenticated Codex CLI for one
+structured, evidence-grounded summary batch, then publishes. If Codex is unavailable or times out, the
+validated deterministic summaries are published instead. YouTube executes
+`/home/herbert/Shinri/thesis/youtube-research/scripts/youtube_daily.sh`: it searches the previous 24 hours,
+collects available transcripts, then publishes a 24-hour snapshot.
 
 ## Production publication
 
-Set the same random `REDDIT_INGEST_SECRET` in Vercel and in the collector host's private environment.
-Set `REDDIT_INGEST_ENDPOINT=https://thesis-ios.vercel.app` on the collector host. After a successful raw
-update, regenerate analysis and publish it:
+Set the same random `SOCIAL_INGEST_SECRET` in Vercel and both private collector `.env` files. Set
+`SOCIAL_INGEST_ENDPOINT=https://<production-host>` on the collector host. Both ingestion endpoints are
+write-protected; their GET endpoints remain public and read-only.
+
+For a safe payload inspection without publishing:
 
 ```bash
-cd /home/shared/LabDataP3/herbert
-.venv/bin/python -m reddit_scraper update
-.venv/bin/python -m reddit_analysis stock-summary --days 7 --top 20
-.venv/bin/python /home/herbert/Shinri/thesis/thesis-ios/scripts/publish_reddit_social.py
+python scripts/publish_reddit_social.py --dry-run --output /tmp/reddit-social.json
+python /home/herbert/Shinri/thesis/youtube-research/scripts/publish_youtube_social.py \
+  --dry-run --output /tmp/youtube-social.json
 ```
 
-Use `--dry-run --output /tmp/reddit-social.json` to validate without changing production. Publication
-upserts one compact Turso row per ticker. If collection, analysis, or publication fails, the last good
-snapshot remains available; the UI labels it stale after 36 hours.
-
-The existing `reddit-scraper.service` only runs the first command and is not installed on this host yet.
-Before enabling its timer, replace its `ExecStart` with a reviewed wrapper that runs all three commands
-sequentially and stops on the first failure.
+If a collection or publication fails, the last good row remains available and the UI marks snapshots
+stale after 36 hours.

@@ -314,7 +314,7 @@ export function MonacoHome() {
       const v = q.get("view");
       if (v === "brief" || v === "dashboard" || v === "portfolio") setMobilePage(v);
       const dashboard = q.get("dash");
-      const dashboardMap: Record<string, DashTab> = { overview: "overview", analyst: "extra", news: "news", markets: "markets" };
+      const dashboardMap: Record<string, DashTab> = { overview: "overview", analyst: "extra", hivemind: "extra", news: "news", markets: "markets" };
       if (dashboard && dashboardMap[dashboard]) setDashTab(dashboardMap[dashboard]);
       if (q.get("onboard") === "1") setOnboarding(true);
     } catch {}
