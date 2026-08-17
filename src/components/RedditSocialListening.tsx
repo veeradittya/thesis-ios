@@ -92,7 +92,16 @@ function VideoCard({ video }: { video: YouTubeSocialVideo }) {
           <p className="mt-1 text-[10px] text-[#666]">{video.viewCount == null ? "Views unavailable" : `${compact.format(video.viewCount)} views`} · {publishedLabel(video.publishedAt)}</p>
         </div>
       </div>
-      {video.transcriptExcerpt && <p className="border-t border-white/[0.07] px-3 py-2.5 text-[12px] leading-relaxed text-white/55">{video.transcriptExcerpt}</p>}
+      {(video.videoSummary || video.transcriptExcerpt) && (
+        <div className="border-t border-white/[0.07] px-3 py-2.5">
+          <p className="text-[9px] uppercase tracking-[0.12em] text-[#666]">
+            {video.videoSummary ? "Transcript summary" : "Transcript excerpt"}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-white/60">
+            {video.videoSummary || video.transcriptExcerpt}
+          </p>
+        </div>
+      )}
     </a>
   );
 }

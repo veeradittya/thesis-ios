@@ -7,6 +7,7 @@ export interface YouTubeSocialVideo {
   viewCount: number | null;
   thumbnailUrl: string | null;
   url: string;
+  videoSummary: string | null;
   transcriptExcerpt: string | null;
 }
 
@@ -56,6 +57,7 @@ export function normalizeYouTubeSnapshot(value: unknown): YouTubeSocialSnapshot 
       viewCount: item.viewCount != null && Number.isFinite(views) && views >= 0 ? views : null,
       thumbnailUrl: /^https:\/\/i\.ytimg\.com\//i.test(thumbnail) ? thumbnail : null,
       url,
+      videoSummary: text(item.videoSummary, 700) || null,
       transcriptExcerpt: text(item.transcriptExcerpt, 600) || null,
     }];
   });

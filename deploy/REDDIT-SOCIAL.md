@@ -19,7 +19,8 @@ Reddit executes `/home/shared/LabDataP3/herbert/scripts/reddit_daily.sh`: it fet
 structured, evidence-grounded summary batch, then publishes. If Codex is unavailable or times out, the
 validated deterministic summaries are published instead. YouTube executes
 `/home/herbert/Shinri/thesis/youtube-research/scripts/youtube_daily.sh`: it searches the previous 24 hours,
-collects available transcripts, then publishes a 24-hour snapshot.
+collects available transcripts, caches transcript-only Codex summaries by content hash, then publishes
+a 24-hour snapshot. When a transcript has no summary, the UI falls back to its matched excerpt.
 
 ## Production publication
 

@@ -15,6 +15,7 @@ const row = {
     viewCount: 100,
     thumbnailUrl: "https://i.ytimg.com/vi/abcdefghijk/hqdefault.jpg",
     url: "https://www.youtube.com/watch?v=abcdefghijk",
+    videoSummary: "The creator argues that data-center demand supports Nvidia, while identifying valuation as the principal risk.",
     transcriptExcerpt: "An evidence excerpt.",
   }],
 };
@@ -23,6 +24,7 @@ test("normalizes safe YouTube snapshots", () => {
   const normalized = normalizeYouTubeSnapshot(row);
   assert.equal(normalized?.ticker, "NVDA");
   assert.equal(normalized?.videos[0].viewCount, 100);
+  assert.match(normalized?.videos[0].videoSummary || "", /data-center demand/);
 });
 
 test("drops non-YouTube links and malformed snapshots", () => {
