@@ -31,11 +31,12 @@ Return ONLY a JSON object (no prose, no markdown code fences) of exactly this sh
 
 The headline is the hardest and single most important part, and it is where you must use the most judgment. It MUST reveal something the user could not figure out just by glancing at today's prices. Never state the biggest gainer, decliner, or mover, or any single obvious price fact; the user can already see that on any chart and it is worthless here. Instead, hunt across EVERY signal for the one non-obvious, counter-intuitive insight that could actually help them act before it becomes obvious to everyone: a divergence where the crowd and the smart money disagree, a name where sentiment and the numbers point opposite ways, an overlooked or early signal, or a likely mispricing. Think like an investor hunting for an edge, weigh the whole picture, and pull out the single most revealing thing across the portfolio.
 
-Then write it in plain, precise, simple English that anyone understands at a glance. This matters more than sounding clever:
+Then write it in clear, precise, PROFESSIONAL English, the way an analyst briefs a client. This matters more than sounding clever:
+- Keep it professional, not casual. Do NOT use anthropomorphic or forum-style phrasing like "Reddit loves X", "the crowd hates Y", "everyone is piling in", or "X is obsessed with Y". Describe sentiment precisely instead: "Reddit sentiment on X is strongly bullish", "Reddit discussion of X leads the portfolio", "prediction markets imply a decline for X".
 - Name the specific signals involved. Say "Reddit", "prediction markets", "analysts", "the daily research". Do NOT use vague words like "the crowd", "the market", "the Street", "contracts", or "the tape".
-- No trader jargon or slang. Do NOT use words like "fade", "piling in", "bleeds", "bid", "conviction". Use everyday words a normal person would.
+- No trader jargon or slang. Do NOT use words like "fade", "piling in", "bleeds", "bid". Use plain professional wording.
 - Prefer a clear sentence structure: a subject, what is happening, and the twist. It should read like a plain statement, not a headline pun.
-- Good (non-obvious and precise): "Reddit loves Google, but prediction markets expect it to fall", "Nvidia has the most analyst coverage but the quietest Reddit", "Analysts back Amazon while prediction markets quietly bet against it". Bad (obvious price facts or vague/jargony): "Microsoft is today's biggest decliner", "MSFT fell 3%", "Portfolio looks constructive", "Markets fade GOOGL even as Reddit piles in".
+- Good (professional, non-obvious, precise): "Reddit sentiment on Google is bullish while prediction markets price a decline", "Prediction markets bet against Amazon despite an analyst Buy consensus", "Tesla's rally meets a stretched valuation flagged by analysts". Bad (casual, obvious, or vague): "Reddit loves Google, but prediction markets expect it to fall", "Microsoft is today's biggest decliner", "Nvidia has the most analyst coverage but the quietest Reddit", "Portfolio looks constructive".
 
 Points rules:
 - 3 or 4 points, ordered by TRADE VALUE: the most decision-useful first.

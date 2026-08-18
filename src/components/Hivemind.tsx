@@ -23,6 +23,7 @@ import {
   LineChart,
   MessageCircle,
   Newspaper,
+  Radio,
   SlidersHorizontal,
   TrendingUp,
   Users,
@@ -131,16 +132,16 @@ function PulseChip({ label, color }: { label: string; color: string }) {
   );
 }
 
-// v1: the implied move — the single most valuable bit, made the most prominent.
+// v1: the implied move — the single most valuable bit, shown as plain coloured text (no pill).
 const ACTION_STYLE: Record<PointAction, string> = {
-  Add: "bg-emerald-400/15 text-emerald-300 ring-emerald-300/25",
-  Trim: "bg-rose-400/15 text-rose-300 ring-rose-300/25",
-  Fade: "bg-amber-400/15 text-amber-300 ring-amber-300/25",
-  Watch: "bg-sky-400/15 text-sky-300 ring-sky-300/25",
-  Hold: "bg-white/[0.08] text-white/55 ring-white/15",
+  Add: "text-emerald-300",
+  Trim: "text-rose-300",
+  Fade: "text-amber-300",
+  Watch: "text-sky-300",
+  Hold: "text-white/55",
 };
-function ActionChip({ action }: { action: PointAction }) {
-  return <span className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${ACTION_STYLE[action]}`}>{action}</span>;
+function ActionChip({ action, size = "sm" }: { action: PointAction; size?: "sm" | "md" }) {
+  return <span className={`shrink-0 font-semibold uppercase tracking-[0.08em] ${size === "md" ? "text-[12px]" : "text-[11px]"} ${ACTION_STYLE[action]}`}>{action}</span>;
 }
 
 // v1: how many INDEPENDENT, reliable signals agree — separates real signal from crowd noise.
@@ -221,18 +222,19 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
         <PulseOrb tint={pulse.tint} speed={pulse.speed} active={s?.phase === "open"} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-col gap-0.5 text-[13.8px] leading-tight" style={{ fontFamily: "var(--font-inter)" }}>
+            <span className="text-[16.42px] uppercase tracking-[0.15em] text-white">Hivemind</span>
             <span className={statusColor}>NYSE · Nasdaq</span>
             <span className="text-[12.42px] text-[#8a8a8a]"><span className="tabular-nums text-white/85">{s ? s.clock : " "}</span> ET</span>
             {s && <span className="text-[12.42px] text-[#8a8a8a]">{s.countdownLabel} {s.countdownText}</span>}
           </div>
         </div>
       </div>
-      <p className="mt-3.5 text-[18px] font-medium leading-snug text-white">{headline}</p>
       {showInfo && (
         <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[12.5px] leading-relaxed text-white/65">
           {HIVEMIND_INFO}
         </div>
       )}
+      <p className="mt-3.5 text-[16px] font-medium leading-snug text-white">{headline}</p>
       <ul className="mt-3.5 space-y-1">
         {points.map((pt, i) => {
           const showDetail = openPoint === i;
@@ -248,7 +250,7 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
                 className="flex w-full items-start gap-2.5 py-1 text-left"
               >
                 <span className="flex-1 text-[13.5px] leading-snug text-white/85">{pt.short}</span>
-                {pt.action && <ActionChip action={pt.action} />}
+                {pt.action === "Trim" && <ActionChip action={pt.action} />}
                 <ChevronDown className={`mt-[3px] h-3.5 w-3.5 shrink-0 text-white/35 transition-transform ${showDetail ? "rotate-180" : ""}`} />
               </button>
 
@@ -515,14 +517,14 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
           <p className="text-[16px] font-medium leading-tight text-white">{pulse.ticker}</p>
           {name && <p className="mt-0.5 truncate text-[13px] leading-tight text-[#8a8a8a]">{name}</p>}
         </div>
-        <div className="flex shrink-0 items-center gap-2.5">
+        <div className="flex shrink-0 items-baseline gap-2.5">
+          <ActionChip action={action.label} size="md" />
           {quote?.price != null && (
             <div className="text-right">
               <p className="text-[15px] leading-tight tabular-nums text-white">{quote.price.toFixed(2)}</p>
               <p className={`text-[12px] leading-tight tabular-nums ${pct == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400"}`}>{pct == null ? "" : `${up ? "+" : ""}${pct.toFixed(2)}%`}</p>
             </div>
           )}
-          <ActionChip action={action.label} />
         </div>
       </div>
 
@@ -621,6 +623,95 @@ function TogglePill({ active, onClick, icon, children }: { active: boolean; onCl
       {icon}
       {children}
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------------------
+// Live News — Bloomberg Television, streamed inline. "Attach" resolves the channel's current
+// live broadcast (via /api/hivemind/live-news) and embeds it; the card expands to a 16:9 player.
+// ---------------------------------------------------------------------------------------
+const LIVE_NEWS_CHANNEL = "UCIALMKvObZNtJ6AmdCLP7Lg"; // Bloomberg Television
+
+function LiveNewsCard() {
+  const [attached, setAttached] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+
+  const attach = useCallback(async () => {
+    setLoading(true);
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    // Muted autoplay + playsinline is the only combination guaranteed to play inline in the iOS
+    // WKWebView shell; the on-player control lets the user unmute. rel=0 keeps it Bloomberg-only.
+    const params = (base: string) => {
+      const q = new URLSearchParams({ autoplay: "1", mute: "1", playsinline: "1", rel: "0", modestbranding: "1" });
+      if (origin) q.set("origin", origin);
+      return `${base}?${q.toString()}`;
+    };
+    let next = params(`https://www.youtube.com/embed/live_stream?channel=${LIVE_NEWS_CHANNEL}`);
+    try {
+      const res = await fetch("/api/hivemind/live-news", { cache: "no-store" });
+      const data = (await res.json()) as { videoId?: string | null };
+      if (data?.videoId) next = params(`https://www.youtube.com/embed/${data.videoId}`);
+    } catch {
+      // keep the channel-form fallback in `next`
+    }
+    setSrc(next);
+    setAttached(true);
+    setLoading(false);
+  }, []);
+
+  const detach = useCallback(() => {
+    setAttached(false);
+    setSrc(null);
+  }, []);
+
+  return (
+    <GlassCard>
+      <div className="flex items-center justify-between gap-3 px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <span className="relative flex h-2 w-2">
+            {attached && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-500/70" />}
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${attached ? "bg-rose-500" : "bg-white/25"}`} />
+          </span>
+          <div>
+            <p className="text-[13.5px] font-medium leading-tight text-white">Live News</p>
+            <p className="text-[11px] leading-tight text-white/45">Bloomberg Television</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={attached ? detach : attach}
+          disabled={loading}
+          aria-pressed={attached}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-60 ${
+            attached
+              ? "bg-white/[0.05] text-white/55 ring-1 ring-white/10 hover:text-white/80"
+              : "bg-white/[0.14] text-white ring-1 ring-white/20"
+          }`}
+          style={attached ? undefined : { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)" }}
+        >
+          <Radio className="h-3.5 w-3.5" />
+          {loading ? "Connecting…" : attached ? "Detach" : "Attach"}
+        </button>
+      </div>
+      {attached && (
+        <div className="relative w-full border-t border-white/[0.08] bg-black" style={{ aspectRatio: "16 / 9" }}>
+          {src ? (
+            <iframe
+              key={src}
+              src={src}
+              title="Bloomberg Television — Live"
+              className="absolute inset-0 h-full w-full"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
+          ) : (
+            <div className="absolute inset-0 grid place-items-center text-[12px] text-white/40">Connecting to Bloomberg Television…</div>
+          )}
+        </div>
+      )}
+    </GlassCard>
   );
 }
 
@@ -995,7 +1086,9 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   }, [snapshotKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const headline = llm?.headline || fallback.headline;
-  const points = llm?.points || fallback.points;
+  // Trim takeaways (the risk-off "reduce" call) float to the top; stable sort keeps the rest in order.
+  const points: BriefPoint[] = [...(llm?.points || fallback.points)];
+  points.sort((a, b) => Number(b.action === "Trim") - Number(a.action === "Trim"));
 
   // Opportunities: tickers in the social feeds we don't hold, ranked by Reddit mentions.
   const opportunities = useMemo(() => {
@@ -1042,6 +1135,8 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   return (
     <section aria-label="Hivemind" className="space-y-3">
       <Hero pulse={portfolioPulse} headline={headline} points={points} />
+
+      <LiveNewsCard />
 
       {showLoading ? (
         <LoadingSkeleton />

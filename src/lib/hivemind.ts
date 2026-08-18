@@ -554,14 +554,14 @@ export function composePortfolioBrief(
   const aVsM = live.find((x) => (rscore(x) ?? 0) > 0 && (marketLeanOf(x) ?? 0) < -0.1);
   if (aVsM) headline = `Analysts back ${aVsM.signals.ticker}, but prediction markets expect it to fall`;
   // b. The loudest Reddit name that prediction markets are betting against.
-  if (!headline && loud && (marketLeanOf(loud) ?? 0) < -0.1) headline = `Reddit loves ${loud.signals.ticker}, but prediction markets expect it to fall`;
+  if (!headline && loud && (marketLeanOf(loud) ?? 0) < -0.1) headline = `Reddit sentiment on ${loud.signals.ticker} is bullish while prediction markets price a decline`;
   // c. Research looks weak, but prediction markets expect a rise.
   const vVsM = live.find((x) => (vscore(x) ?? 0) < 0 && (marketLeanOf(x) ?? 0) > 0.1);
   if (!headline && vVsM) headline = `${vVsM.signals.ticker}'s research looks weak, but prediction markets expect a rise`;
   // d. The loudest Reddit name whose daily research is unconvinced.
-  if (!headline && loud && (vscore(loud) ?? 0) < 0) headline = `Reddit is loud on ${loud.signals.ticker}, but the daily research is not convinced`;
+  if (!headline && loud && (vscore(loud) ?? 0) < 0) headline = `Reddit discussion of ${loud.signals.ticker} is heavy while the daily research stays cautious`;
   // e. Last resort: a plain read, still not a price fact.
-  if (!headline) headline = `Signals lean ${portfolio.label.toLowerCase()}, with the crowd and the numbers not fully aligned`;
+  if (!headline) headline = `Signals lean ${portfolio.label.toLowerCase()}, with sentiment and the numbers not fully aligned`;
   return { headline, points: points.slice(0, 4) };
 }
 
@@ -600,7 +600,7 @@ export function assetAction(pulse: AssetPulse, s: AssetSignals): AssetAction {
   const marketBull = !!mkt?.present && mkt.score > 0.15;
   const verdictWeak = normVerdict(s.verdict) in VERDICT_SCORE && VERDICT_SCORE[normVerdict(s.verdict)] < 0;
 
-  if (redditLoud && marketBear) return { label: "Fade", tone: "negative", note: "crowd is hot but prediction markets bet lower" };
+  if (redditLoud && marketBear) return { label: "Fade", tone: "negative", note: "Reddit bullish but prediction markets price a decline" };
   if (score <= -0.3 || (verdictWeak && marketBear)) return { label: "Trim", tone: "negative", note: "signals lean negative" };
   if (score >= 0.3 && (marketBull || pulse.tone === "positive")) return { label: "Add", tone: "positive", note: "signals line up to the upside" };
   if (mkt?.present && Math.abs(mkt.score) > 0.15 && Math.sign(mkt.score) !== (Math.sign(score) || 1)) return { label: "Watch", tone: "neutral", note: "signals disagree" };
