@@ -40,42 +40,6 @@ async function query(sql: string, args: Arg[] = []): Promise<Record<string, stri
   return result.rows.map((row) => Object.fromEntries(row.map((cell, i) => [names[i], cell?.value ?? null])));
 }
 
-// Coming-soon email capture. A single email can request updates and beta access independently.
-export async function saveLandingInterest(input: {
-  email: string;
-  name: string | null;
-  kind: "updates" | "beta";
-}): Promise<void> {
-  const now = new Date().toISOString();
-  await pipeline([
-    {
-      type: "execute",
-      stmt: {
-        sql: `CREATE TABLE IF NOT EXISTS landing_interest (
-          email TEXT NOT NULL,
-          kind TEXT NOT NULL,
-          name TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL,
-          PRIMARY KEY (email, kind)
-        )`,
-        args: [],
-      },
-    },
-    {
-      type: "execute",
-      stmt: {
-        sql: `INSERT INTO landing_interest (email, kind, name, created_at, updated_at)
-              VALUES (?, ?, ?, ?, ?)
-              ON CONFLICT(email, kind) DO UPDATE SET
-                name = COALESCE(excluded.name, landing_interest.name),
-                updated_at = excluded.updated_at`,
-        args: [typed(input.email), typed(input.kind), typed(input.name), typed(now), typed(now)],
-      },
-    },
-  ]);
-}
-
 export interface MonitorResult {
   ticker: string;
   name: string;
