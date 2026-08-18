@@ -627,3 +627,40 @@ export function assetConviction(pulse: AssetPulse): AssetConviction {
   const level: AssetConviction["level"] = agree >= 3 ? "high" : agree >= 2 ? "medium" : "low";
   return { level, agree, total, redditOnly: total === 0 && redditPresent };
 }
+
+// ---------------------------------------------------------------------------------------
+// Per-signal directional lean — a plain Strong Buy … Strong Sell read for EACH signal family,
+// so a holding's breakdown shows what every signal POINTS TO, not just how much of it there is.
+// Every lean is inferred from that family's raw data: the same -1..1 scores that drive the pulse
+// (analyst consensus + agent verdict, Reddit tone, prediction-market odds, news-headline tone).
+// YouTube is attention-only in the pulse, so its lean is inferred here from the videos' text.
+// ---------------------------------------------------------------------------------------
+export type SignalLean = "Strong Buy" | "Buy" | "Neutral" | "Sell" | "Strong Sell";
+
+export function leanLabel(score: number): SignalLean {
+  if (score >= 0.45) return "Strong Buy";
+  if (score >= 0.15) return "Buy";
+  if (score > -0.15) return "Neutral";
+  if (score > -0.45) return "Sell";
+  return "Strong Sell";
+}
+
+// The lean for one signal family off a computed pulse (null when that family has no signal).
+export function signalLean(pulse: AssetPulse, key: SignalKey): SignalLean | null {
+  const c = pulse.contributions.find((x) => x.key === key);
+  return c && c.present ? leanLabel(c.score) : null;
+}
+
+// YouTube coverage isn't scored into the pulse, so infer its lean straight from the video text
+// (titles + agent summaries + transcript excerpts), using the same lexicon the news/Reddit tones use.
+export function youtubeLean(
+  videos: Array<{ title?: string | null; videoSummary?: string | null; transcriptExcerpt?: string | null }>,
+): SignalLean | null {
+  if (!videos?.length) return null;
+  const text = videos
+    .map((v) => [v.title, v.videoSummary, v.transcriptExcerpt].filter(Boolean).join(". "))
+    .join(" . ")
+    .trim();
+  if (!text) return null;
+  return leanLabel(lexiconTone(text));
+}

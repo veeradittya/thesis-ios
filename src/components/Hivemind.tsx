@@ -39,7 +39,9 @@ import {
   assetConviction,
   assetNotability,
   composePortfolioBrief,
+  signalLean,
   synthesizeAsset,
+  youtubeLean,
   type AssetAction,
   type AssetConviction,
   type AssetMarket,
@@ -47,6 +49,7 @@ import {
   type AssetSignals,
   type BriefFact,
   type PortfolioPulse,
+  type SignalLean,
 } from "@/lib/hivemind";
 
 type PointAction = AssetAction["label"];
@@ -144,6 +147,18 @@ function ActionChip({ action, size = "sm" }: { action: PointAction; size?: "sm" 
   return <span className={`shrink-0 font-semibold uppercase tracking-[0.08em] ${size === "md" ? "text-[12px]" : "text-[11px]"} ${ACTION_STYLE[action]}`}>{action}</span>;
 }
 
+// The directional read for a single signal family (Strong Buy … Strong Sell), inferred from its raw data.
+const LEAN_STYLE: Record<SignalLean, string> = {
+  "Strong Buy": "text-emerald-300",
+  Buy: "text-emerald-400/75",
+  Neutral: "text-white/40",
+  Sell: "text-rose-400/80",
+  "Strong Sell": "text-rose-300",
+};
+function LeanTag({ lean }: { lean: SignalLean }) {
+  return <span className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.06em] ${LEAN_STYLE[lean]}`}>{lean}</span>;
+}
+
 // v1: how many INDEPENDENT, reliable signals agree — separates real signal from crowd noise.
 function ConvictionBadge({ c }: { c: AssetConviction }) {
   const label = c.redditOnly ? "Unconfirmed" : c.level === "high" ? "High conviction" : c.level === "medium" ? "Some conviction" : "Low conviction";
@@ -160,14 +175,14 @@ function ConvictionBadge({ c }: { c: AssetConviction }) {
 }
 
 // Collapsible sub-section inside a holding's signal breakdown.
-function SignalSection({ icon, title, meta, children, defaultOpen = false }: { icon: React.ReactNode; title: string; meta?: string; children: React.ReactNode; defaultOpen?: boolean }) {
+function SignalSection({ icon, title, meta, children, defaultOpen = false }: { icon: React.ReactNode; title: string; meta?: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div className="rounded-xl bg-white/[0.025]">
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left">
         <span className="text-white/45">{icon}</span>
         <span className="text-[13px] font-medium text-white/85">{title}</span>
-        {meta && <span className="text-[11px] text-[#737373]">{meta}</span>}
+        {meta}
         <ChevronDown className={`ml-auto h-3.5 w-3.5 text-white/40 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="px-3 pb-3.5 pt-0.5">{children}</div>}
@@ -509,6 +524,14 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
   const hasMarkets = !!markets && markets.events.length > 0;
   const hasNews = !!news && news.length > 0;
 
+  // Per-signal directional lean (Strong Buy … Strong Sell), inferred from each family's raw data —
+  // shown beside the signal name so the breakdown reads as "what each signal points to", not a count.
+  const analystLean = signalLean(pulse, "analyst");
+  const redditLean = signalLean(pulse, "reddit");
+  const marketsLean = signalLean(pulse, "markets");
+  const newsLean = signalLean(pulse, "news");
+  const ytLean = youtubeLean(videos ?? []);
+
   return (
     <GlassCard className="px-4 py-4">
       {/* header */}
@@ -550,26 +573,26 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
       {/* full breakdown */}
       {open && (
         <div className="mt-3 space-y-2 border-t border-white/[0.08] pt-3">
-          <SignalSection icon={<TrendingUp className="h-3.5 w-3.5" />} title="Analyst" meta={rec?.label} defaultOpen>
+          <SignalSection icon={<TrendingUp className="h-3.5 w-3.5" />} title="Analyst" meta={analystLean && <LeanTag lean={analystLean} />} defaultOpen>
             <AnalystBlock monitor={monitor} rec={rec} brief={brief} />
           </SignalSection>
           {hasReddit && (
-            <SignalSection icon={<MessageCircle className="h-3.5 w-3.5" />} title="Reddit" meta={`${reddit!.mentions} mentions`}>
+            <SignalSection icon={<MessageCircle className="h-3.5 w-3.5" />} title="Reddit" meta={redditLean && <LeanTag lean={redditLean} />}>
               <RedditBlock snap={reddit!} />
             </SignalSection>
           )}
           {hasVideos && (
-            <SignalSection icon={<Video className="h-3.5 w-3.5" />} title="YouTube" meta={`${videos!.length} video${videos!.length > 1 ? "s" : ""}`}>
+            <SignalSection icon={<Video className="h-3.5 w-3.5" />} title="YouTube" meta={ytLean && <LeanTag lean={ytLean} />}>
               <YouTubeBlock videos={videos!} />
             </SignalSection>
           )}
           {hasMarkets && (
-            <SignalSection icon={<BarChart3 className="h-3.5 w-3.5" />} title="Prediction markets" meta={`${markets!.count} market${markets!.count > 1 ? "s" : ""}`}>
+            <SignalSection icon={<BarChart3 className="h-3.5 w-3.5" />} title="Prediction markets" meta={marketsLean && <LeanTag lean={marketsLean} />}>
               <MarketsBlock asset={markets!} />
             </SignalSection>
           )}
           {hasNews && (
-            <SignalSection icon={<Newspaper className="h-3.5 w-3.5" />} title="News" meta={`${news!.length} article${news!.length > 1 ? "s" : ""}`}>
+            <SignalSection icon={<Newspaper className="h-3.5 w-3.5" />} title="News" meta={newsLean && <LeanTag lean={newsLean} />}>
               <NewsBlock articles={news!} />
             </SignalSection>
           )}
