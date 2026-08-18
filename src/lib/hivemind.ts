@@ -564,3 +564,66 @@ export function composePortfolioBrief(
   if (!headline) headline = `Signals lean ${portfolio.label.toLowerCase()}, with the crowd and the numbers not fully aligned`;
   return { headline, points: points.slice(0, 4) };
 }
+
+// ---------------------------------------------------------------------------------------
+// v1 signal-to-noise helpers: notability (ranking + collapsing quiet names), an action lean,
+// and conviction (how many independent, reliable signals agree). All pure + deterministic.
+// ---------------------------------------------------------------------------------------
+
+const dirContribs = (pulse: AssetPulse) => pulse.contributions.filter((c) => c.present && c.key !== "news");
+
+// How much is HAPPENING for this asset right now, 0..1 — drives ranking and collapsing the quiet ones.
+export function assetNotability(pulse: AssetPulse, s: AssetSignals): number {
+  const priceMag = typeof s.changePct === "number" ? Math.min(Math.abs(s.changePct) / 3, 1) : 0;
+  const dirs = dirContribs(pulse).map((c) => c.score);
+  const divergence = dirs.length > 1 ? clamp((Math.max(...dirs) - Math.min(...dirs)) / 2, 0, 1) : 0;
+  const redditSpike = s.reddit?.mentionChangePct != null ? Math.min(Math.abs(s.reddit.mentionChangePct) / 100, 1) : 0;
+  const conviction = Math.abs(pulse.score);
+  const coverage = Math.min(pulse.signalCount / 5, 1);
+  const raw = 0.3 * priceMag + 0.3 * divergence + 0.2 * redditSpike + 0.2 * conviction;
+  return clamp(raw * (0.6 + 0.4 * coverage), 0, 1); // damp names with thin signal coverage
+}
+
+export interface AssetAction {
+  label: "Add" | "Trim" | "Fade" | "Watch" | "Hold";
+  tone: Tone;
+  note: string;
+}
+const marketOf = (pulse: AssetPulse) => pulse.contributions.find((c) => c.key === "markets");
+
+// A simple, decision-oriented lean derived from the signals.
+export function assetAction(pulse: AssetPulse, s: AssetSignals): AssetAction {
+  const score = pulse.score;
+  const mkt = marketOf(pulse);
+  const redditLoud = (s.reddit?.mentions ?? 0) >= 100 || (s.reddit?.mentionChangePct ?? 0) >= 40;
+  const marketBear = !!mkt?.present && mkt.score < -0.15;
+  const marketBull = !!mkt?.present && mkt.score > 0.15;
+  const verdictWeak = normVerdict(s.verdict) in VERDICT_SCORE && VERDICT_SCORE[normVerdict(s.verdict)] < 0;
+
+  if (redditLoud && marketBear) return { label: "Fade", tone: "negative", note: "crowd is hot but prediction markets bet lower" };
+  if (score <= -0.3 || (verdictWeak && marketBear)) return { label: "Trim", tone: "negative", note: "signals lean negative" };
+  if (score >= 0.3 && (marketBull || pulse.tone === "positive")) return { label: "Add", tone: "positive", note: "signals line up to the upside" };
+  if (mkt?.present && Math.abs(mkt.score) > 0.15 && Math.sign(mkt.score) !== (Math.sign(score) || 1)) return { label: "Watch", tone: "neutral", note: "signals disagree" };
+  if (Math.abs(score) < 0.12) return { label: "Watch", tone: "neutral", note: "no clear edge yet" };
+  return { label: "Hold", tone: "neutral", note: "steady" };
+}
+
+export interface AssetConviction {
+  level: "high" | "medium" | "low";
+  agree: number;
+  total: number;
+  redditOnly: boolean;
+}
+
+// How many INDEPENDENT, RELIABLE signals agree with the pulse direction (Reddit is crowd noise, not counted).
+export function assetConviction(pulse: AssetPulse): AssetConviction {
+  const sign = Math.sign(pulse.score) || 1;
+  const reliable = pulse.contributions.filter(
+    (c) => c.present && (c.key === "analyst" || c.key === "markets" || c.key === "price") && Math.abs(c.score) > 0.1,
+  );
+  const agree = reliable.filter((c) => Math.sign(c.score) === sign).length;
+  const total = reliable.length;
+  const redditPresent = !!pulse.contributions.find((c) => c.key === "reddit")?.present;
+  const level: AssetConviction["level"] = agree >= 3 ? "high" : agree >= 2 ? "medium" : "low";
+  return { level, agree, total, redditOnly: total === 0 && redditPresent };
+}

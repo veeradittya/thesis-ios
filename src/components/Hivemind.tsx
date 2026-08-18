@@ -14,6 +14,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowDownRight,
+  ArrowUpRight,
   BarChart3,
   ChevronDown,
   ExternalLink,
@@ -21,6 +23,7 @@ import {
   LineChart,
   MessageCircle,
   Newspaper,
+  SlidersHorizontal,
   TrendingUp,
   Users,
   Video,
@@ -31,8 +34,13 @@ import type { RedditSocialResponse, RedditSocialSnapshot } from "@/lib/redditSoc
 import type { YouTubeSocialResponse, YouTubeSocialVideo } from "@/lib/youtubeSocial";
 import {
   aggregatePortfolioPulse,
+  assetAction,
+  assetConviction,
+  assetNotability,
   composePortfolioBrief,
   synthesizeAsset,
+  type AssetAction,
+  type AssetConviction,
   type AssetMarket,
   type AssetPulse,
   type AssetSignals,
@@ -40,7 +48,8 @@ import {
   type PortfolioPulse,
 } from "@/lib/hivemind";
 
-type BriefPoint = { short: string; detail: string; facts?: BriefFact[] };
+type PointAction = AssetAction["label"];
+type BriefPoint = { short: string; detail: string; facts?: BriefFact[]; action?: PointAction };
 type OverviewData = { headline: string | null; points: BriefPoint[] | null };
 
 // The liquid-glass sheen shared by every dashboard card (matches the Analyst Sentiment cards).
@@ -117,6 +126,33 @@ function GlassCard({ children, className = "", style, onClick }: { children: Rea
 function PulseChip({ label, color }: { label: string; color: string }) {
   return (
     <span style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }} className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[12px] font-medium ring-1 ring-white/15 backdrop-blur-md ${color}`}>
+      {label}
+    </span>
+  );
+}
+
+// v1: the implied move — the single most valuable bit, made the most prominent.
+const ACTION_STYLE: Record<PointAction, string> = {
+  Add: "bg-emerald-400/15 text-emerald-300 ring-emerald-300/25",
+  Trim: "bg-rose-400/15 text-rose-300 ring-rose-300/25",
+  Fade: "bg-amber-400/15 text-amber-300 ring-amber-300/25",
+  Watch: "bg-sky-400/15 text-sky-300 ring-sky-300/25",
+  Hold: "bg-white/[0.08] text-white/55 ring-white/15",
+};
+function ActionChip({ action }: { action: PointAction }) {
+  return <span className={`inline-flex shrink-0 items-center rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${ACTION_STYLE[action]}`}>{action}</span>;
+}
+
+// v1: how many INDEPENDENT, reliable signals agree — separates real signal from crowd noise.
+function ConvictionBadge({ c }: { c: AssetConviction }) {
+  const label = c.redditOnly ? "Unconfirmed" : c.level === "high" ? "High conviction" : c.level === "medium" ? "Some conviction" : "Low conviction";
+  const dots = c.redditOnly ? 0 : c.level === "high" ? 3 : c.level === "medium" ? 2 : 1;
+  const color = c.redditOnly ? "bg-amber-300/70" : c.level === "high" ? "bg-emerald-300" : c.level === "medium" ? "bg-white/60" : "bg-white/35";
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/40" title={c.redditOnly ? "Only Reddit chatter backs this" : `${c.agree} of ${c.total} reliable signals agree`}>
+      <span className="flex items-center gap-0.5">
+        {[0, 1, 2].map((i) => <span key={i} className={`h-1.5 w-1.5 rounded-full ${i < dots ? color : "bg-white/[0.12]"}`} />)}
+      </span>
       {label}
     </span>
   );
@@ -212,6 +248,7 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
                 className="flex w-full items-start gap-2.5 py-1 text-left"
               >
                 <span className="flex-1 text-[13.5px] leading-snug text-white/85">{pt.short}</span>
+                {pt.action && <ActionChip action={pt.action} />}
                 <ChevronDown className={`mt-[3px] h-3.5 w-3.5 shrink-0 text-white/35 transition-transform ${showDetail ? "rotate-180" : ""}`} />
               </button>
 
@@ -456,11 +493,12 @@ function CoverageChip({ icon, on, label }: { icon: React.ReactNode; on: boolean;
 // ---------------------------------------------------------------------------------------
 // Per-holding card
 // ---------------------------------------------------------------------------------------
-function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, videos, markets, news }: {
+function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, videos, markets, news, action, conviction, defaultOpen }: {
   pulse: AssetPulse; name?: string | null; quote?: Quote; monitor?: MonitorResult; rec?: Rec; metric?: Metric;
   brief?: string; reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[]; markets?: MarketsAsset; news?: NewsArticle[];
+  action: AssetAction; conviction: AssetConviction; defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen ?? false);
   const pct = quote?.percent ?? null;
   const up = (pct ?? 0) >= 0;
   const hasAnalyst = !!(monitor || rec || brief);
@@ -484,12 +522,18 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
               <p className={`text-[12px] leading-tight tabular-nums ${pct == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400"}`}>{pct == null ? "" : `${up ? "+" : ""}${pct.toFixed(2)}%`}</p>
             </div>
           )}
-          <PulseChip label={pulse.label} color={pulse.color} />
+          <ActionChip action={action.label} />
         </div>
       </div>
 
+      {/* v1: conviction + the "why" behind the suggested move */}
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <ConvictionBadge c={conviction} />
+        {action.note && <><span className="text-white/20">·</span><span className="text-[11px] text-white/50">{action.note}</span></>}
+      </div>
+
       {/* the cross-signal overview — the "interpretation across all signals" */}
-      <p className="mt-3 text-[14px] leading-relaxed text-white/80">{pulse.overview}</p>
+      <p className="mt-2.5 text-[14px] leading-relaxed text-white/80">{pulse.overview}</p>
 
       {/* coverage rail + expand toggle */}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-3 flex w-full items-center gap-1.5">
@@ -533,6 +577,50 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
         </div>
       )}
     </GlassCard>
+  );
+}
+
+type HoldingCardProps = React.ComponentProps<typeof HoldingCard>;
+
+// v1: a quiet holding collapses to a single line (ticker · price · lean); tap to expand the full card.
+function QuietHolding(props: HoldingCardProps) {
+  const [expanded, setExpanded] = useState(false);
+  if (expanded) return <HoldingCard {...props} defaultOpen={false} />;
+  const { pulse, name, quote, action } = props;
+  const pct = quote?.percent ?? null;
+  const up = (pct ?? 0) >= 0;
+  const lean = action.label === "Hold" || action.label === "Watch" ? "quiet" : action.label.toLowerCase();
+  return (
+    <button type="button" onClick={() => setExpanded(true)} aria-label={`Expand ${pulse.ticker}`} className="relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-white/[0.07] px-4 py-2.5 text-left" style={{ boxShadow: SHEEN }}>
+      <span className="text-[14px] font-medium text-white">{pulse.ticker}</span>
+      {name && <span className="min-w-0 flex-1 truncate text-[12px] text-white/35">{name}</span>}
+      <span className="ml-auto flex shrink-0 items-center gap-2.5 tabular-nums">
+        {quote?.price != null && (
+          <>
+            <span className="text-[13px] text-white/70">{quote.price.toFixed(2)}</span>
+            <span className={`text-[11px] ${pct == null ? "text-white/40" : up ? "text-emerald-400/80" : "text-rose-400/80"}`}>{pct == null ? "" : `${up ? "+" : ""}${pct.toFixed(1)}%`}</span>
+          </>
+        )}
+        <span className="text-[10px] uppercase tracking-wide text-white/30">{lean}</span>
+        <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-white/25" />
+      </span>
+    </button>
+  );
+}
+
+// v1: a small toggle pill for the global filter bar.
+function TogglePill({ active, onClick, icon, children }: { active: boolean; onClick: () => void; icon?: React.ReactNode; children: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11.5px] font-medium transition-colors ${active ? "bg-white/[0.14] text-white ring-1 ring-white/20" : "bg-white/[0.05] text-white/50 ring-1 ring-white/10 hover:text-white/75"}`}
+      style={active ? { boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2)" } : undefined}
+    >
+      {icon}
+      {children}
+    </button>
   );
 }
 
@@ -716,6 +804,37 @@ async function fetchOverview(snapshot: object): Promise<OverviewData | null> {
   return headline || points ? { headline, points } : null;
 }
 
+// v1: "since you last checked" — diff this visit's per-ticker state against the last visit stored in
+// localStorage, surface only what MOVED (price, Reddit volume, research verdict, pulse), then re-save.
+type Delta = { ticker: string; dir: "up" | "down" | "flat"; mag: number; text: string };
+function computeDeltas(views: Array<{ holding: { ticker: string }; pulse: AssetPulse; signals: AssetSignals }>, key: string): Delta[] {
+  const cur: Record<string, { price: number | null; mentions: number | null; verdict: string | null; label: string }> = {};
+  for (const v of views) {
+    cur[v.holding.ticker] = { price: v.signals.price ?? null, mentions: v.signals.reddit?.mentions ?? null, verdict: v.signals.verdict ?? null, label: v.pulse.label };
+  }
+  let prev: typeof cur | null = null;
+  try { const raw = localStorage.getItem(key); if (raw) prev = JSON.parse(raw).state; } catch { /* first visit */ }
+  const out: Delta[] = [];
+  if (prev) {
+    for (const t of Object.keys(cur)) {
+      const p = prev[t]; const c = cur[t]; if (!p) continue;
+      if (c.price != null && p.price != null && p.price > 0) {
+        const chg = ((c.price - p.price) / p.price) * 100;
+        if (Math.abs(chg) >= 1.5) out.push({ ticker: t, dir: chg >= 0 ? "up" : "down", mag: Math.abs(chg), text: `${t} ${chg >= 0 ? "up" : "down"} ${Math.abs(chg).toFixed(1)}% since your last visit` });
+      }
+      if (c.mentions != null && p.mentions != null && p.mentions > 0) {
+        const chg = ((c.mentions - p.mentions) / p.mentions) * 100;
+        if (Math.abs(chg) >= 30) out.push({ ticker: t, dir: chg >= 0 ? "up" : "down", mag: Math.abs(chg) / 2.5, text: `${t} Reddit chatter ${chg >= 0 ? "up" : "down"} ${Math.abs(Math.round(chg))}%` });
+      }
+      if (c.verdict && p.verdict && c.verdict !== p.verdict) out.push({ ticker: t, dir: "flat", mag: 45, text: `${t} research moved ${p.verdict.replace(/_/g, " ")} to ${c.verdict.replace(/_/g, " ")}` });
+      else if (c.label !== p.label) out.push({ ticker: t, dir: "flat", mag: 22, text: `${t} pulse shifted ${p.label} to ${c.label}` });
+    }
+  }
+  out.sort((a, b) => b.mag - a.mag);
+  try { localStorage.setItem(key, JSON.stringify({ state: cur, at: Date.now() })); } catch { /* ignore */ }
+  return out.slice(0, 5);
+}
+
 export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string; name?: string; weight?: number | null }>; user?: string }) {
   const held = useMemo(() => {
     const seen = new Set<string>();
@@ -815,6 +934,35 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     holdingPulses.map((p) => ({ pulse: p.pulse, weight: p.holding.weight ?? 1 })),
   ), [holdingPulses]);
 
+  // v1: per-holding analytics — notability (drives ranking + collapsing), the implied action, and
+  // conviction (how many independent reliable signals agree). Ranked most-notable first.
+  const holdingViews = useMemo(
+    () =>
+      holdingPulses
+        .map(({ holding, pulse, signals }) => ({
+          holding,
+          pulse,
+          signals,
+          notability: assetNotability(pulse, signals),
+          action: assetAction(pulse, signals),
+          conviction: assetConviction(pulse),
+        }))
+        .sort((a, b) => b.notability - a.notability),
+    [holdingPulses],
+  );
+
+  const [signalOnly, setSignalOnly] = useState(false);
+  const [highConviction, setHighConviction] = useState(false);
+
+  // v1: "since you last checked" delta feed (computed once when data is first ready).
+  const [deltas, setDeltas] = useState<Delta[]>([]);
+  const didDelta = useRef(false);
+  useEffect(() => {
+    if (didDelta.current || loading || !holdingViews.some((v) => v.pulse.signalCount > 0)) return;
+    didDelta.current = true;
+    setDeltas(computeDeltas(holdingViews, `thesis.hivemind.state.${user ?? "guest"}`));
+  }, [holdingViews, loading, user]);
+
   // The top-of-page read: a short headline + a few terse, tappable points. Two tiers: a deterministic
   // brief shown instantly, then the LLM-written version (headline + points organized by what matters
   // most) swapped in when it lands.
@@ -868,6 +1016,29 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
 
   const showLoading = loading && !holdingPulses.some((p) => p.pulse.signalCount > 0) && !opportunities.length;
 
+  // v1 ranking + collapse: notable names on top (top one auto-expanded), quiet names collapsed to rows.
+  const NOTABLE = 0.28;
+  let notable = holdingViews.filter((v) => v.notability >= NOTABLE);
+  let quiet = holdingViews.filter((v) => v.notability < NOTABLE);
+  if (notable.length === 0 && holdingViews.length) { notable = holdingViews.slice(0, 1); quiet = holdingViews.slice(1); }
+  if (highConviction) { notable = notable.filter((v) => v.conviction.level === "high"); quiet = []; }
+  if (signalOnly) quiet = [];
+  const cardProps = (v: (typeof holdingViews)[number]) => ({
+    pulse: v.pulse,
+    name: v.holding.name,
+    quote: bundle.quotes[v.holding.ticker],
+    monitor: bundle.monitor[v.holding.ticker],
+    rec: bundle.recs[v.holding.ticker],
+    metric: bundle.metrics[v.holding.ticker],
+    brief: bundle.briefs[v.holding.ticker],
+    reddit: redditByTicker[v.holding.ticker],
+    videos: bundle.youtube[v.holding.ticker],
+    markets: bundle.markets[v.holding.ticker],
+    news: bundle.news[v.holding.ticker],
+    action: v.action,
+    conviction: v.conviction,
+  });
+
   return (
     <section aria-label="Hivemind" className="space-y-3">
       <Hero pulse={portfolioPulse} headline={headline} points={points} />
@@ -878,22 +1049,42 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
         <>
           {held.length > 0 && (
             <>
-              {holdingPulses.map(({ holding, pulse }) => (
-                <HoldingCard
-                  key={holding.ticker}
-                  pulse={pulse}
-                  name={holding.name}
-                  quote={bundle.quotes[holding.ticker]}
-                  monitor={bundle.monitor[holding.ticker]}
-                  rec={bundle.recs[holding.ticker]}
-                  metric={bundle.metrics[holding.ticker]}
-                  brief={bundle.briefs[holding.ticker]}
-                  reddit={redditByTicker[holding.ticker]}
-                  videos={bundle.youtube[holding.ticker]}
-                  markets={bundle.markets[holding.ticker]}
-                  news={bundle.news[holding.ticker]}
-                />
-              ))}
+              {/* v1 filter bar */}
+              <div className="flex items-center gap-2 px-1 pt-1">
+                <TogglePill active={signalOnly} onClick={() => setSignalOnly((v) => !v)} icon={<SlidersHorizontal className="h-3.5 w-3.5" />}>Signal only</TogglePill>
+                <TogglePill active={highConviction} onClick={() => setHighConviction((v) => !v)}>High conviction</TogglePill>
+              </div>
+
+              {/* v1 "since you last checked" delta feed */}
+              {deltas.length > 0 && (
+                <GlassCard className="px-4 py-3">
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#737373]">Since you last checked</p>
+                  <div className="mt-2 space-y-1.5">
+                    {deltas.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[13px] leading-snug text-white/75">
+                        {d.dir === "up" ? <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-emerald-400" /> : d.dir === "down" ? <ArrowDownRight className="h-3.5 w-3.5 shrink-0 text-rose-400" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-white/40" />}
+                        <span>{d.text}</span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+
+              {/* v1 ranked notable holdings (top one auto-expanded) */}
+              {notable.map((v, i) => <HoldingCard key={v.holding.ticker} {...cardProps(v)} defaultOpen={i === 0} />)}
+              {notable.length === 0 && <p className="px-1 py-2 text-center text-[13px] text-white/45">No high-conviction holdings right now.</p>}
+
+              {/* v1 quiet holdings, collapsed to one-line rows */}
+              {quiet.length > 0 && (
+                <>
+                  <div className="flex items-center gap-2.5 px-1 pt-2 text-[10px] uppercase tracking-[0.14em] text-white/30">
+                    <span>Quiet</span>
+                    <span className="h-px flex-1 bg-white/[0.08]" />
+                    <span>{quiet.length}</span>
+                  </div>
+                  {quiet.map((v) => <QuietHolding key={v.holding.ticker} {...cardProps(v)} />)}
+                </>
+              )}
             </>
           )}
 

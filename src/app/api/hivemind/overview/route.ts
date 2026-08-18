@@ -22,6 +22,7 @@ Return ONLY a JSON object (no prose, no markdown code fences) of exactly this sh
   "points": [
     {
       "short": "<a 5 to 9 word label with enough context to stand on its own, not a cryptic fragment>",
+      "action": "<the single implied move for the user on this, EXACTLY one of: Add, Trim, Fade, Watch, Hold. Fade = the crowd is hot but the reliable signals point the other way. Omit if genuinely no move is implied.>",
       "detail": "<one or two sentences, 15 to 35 words, explaining it with specific tickers and numbers>",
       "facts": [{ "text": "<a comprehensive, self-contained fact: the specific numbers, the context, and what it indicates>", "url": "<optional source link for THIS fact, copied verbatim from this holding's sources list; omit entirely if none of the provided sources is where this fact comes from>" }]
     }
@@ -147,7 +148,9 @@ export async function POST(req: Request) {
     const headline = clean(parsed.headline, 90) || null;
     const points = (Array.isArray(parsed.points) ? parsed.points : [])
       .map((p) => {
-        const o = p as { short?: unknown; detail?: unknown; facts?: unknown };
+        const o = p as { short?: unknown; detail?: unknown; facts?: unknown; action?: unknown };
+        const ACTIONS = ["Add", "Trim", "Fade", "Watch", "Hold"];
+        const action = typeof o.action === "string" && ACTIONS.includes(o.action) ? o.action : undefined;
         const facts = (Array.isArray(o.facts) ? o.facts : [])
           .map((f): { text: string; url?: string } | null => {
             if (typeof f === "string") {
@@ -162,7 +165,7 @@ export async function POST(req: Request) {
           })
           .filter((f): f is { text: string; url?: string } => !!f)
           .slice(0, 4);
-        return { short: clean(o.short, 80), detail: clean(o.detail, 300), facts };
+        return { short: clean(o.short, 80), action, detail: clean(o.detail, 300), facts };
       })
       .filter((p) => p.short && p.detail)
       .slice(0, 4);
