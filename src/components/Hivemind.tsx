@@ -75,9 +75,17 @@ interface MarketEvent { event_id: string; exchange: string; title: string; categ
 interface MarketsAsset { ticker: string; label: string; count: number; events: MarketEvent[] }
 interface MarketsPayload { assets: MarketsAsset[] }
 
+// FMP analyst price-target consensus for a ticker.
+interface TargetWindow { avg: number | null; count: number | null }
+interface PriceTarget {
+  high: number | null; low: number | null; consensus: number | null; median: number | null;
+  trend: { year: TargetWindow; quarter: TargetWindow; month: TargetWindow } | null;
+}
+
 interface Bundle {
   quotes: Record<string, Quote>;
   recs: Record<string, Rec>;
+  targets: Record<string, PriceTarget>;
   metrics: Record<string, Metric>;
   briefs: Record<string, string>;
   monitor: Record<string, MonitorResult>;
@@ -91,7 +99,7 @@ interface Bundle {
 }
 
 const EMPTY_BUNDLE: Bundle = {
-  quotes: {}, recs: {}, metrics: {}, briefs: {}, monitor: {}, memo: null,
+  quotes: {}, recs: {}, targets: {}, metrics: {}, briefs: {}, monitor: {}, memo: null,
   reddit: [], redditStale: false, youtube: {}, news: {}, markets: {}, generatedAt: null,
 };
 
@@ -149,11 +157,11 @@ function ActionChip({ action, size = "sm" }: { action: PointAction; size?: "sm" 
 
 // The directional read for a single signal family (Strong Buy … Strong Sell), inferred from its raw data.
 const LEAN_STYLE: Record<SignalLean, string> = {
-  "Strong Buy": "text-emerald-300",
+  "Strong Buy": "text-emerald-400/75",
   Buy: "text-emerald-400/75",
   Neutral: "text-white/40",
   Sell: "text-rose-400/80",
-  "Strong Sell": "text-rose-300",
+  "Strong Sell": "text-rose-400/80",
 };
 function LeanTag({ lean }: { lean: SignalLean }) {
   return <span className={`shrink-0 text-[11px] font-semibold uppercase tracking-[0.06em] ${LEAN_STYLE[lean]}`}>{lean}</span>;
@@ -316,33 +324,75 @@ function recColor(label: string): string {
 }
 const RATING_ROWS: Array<[string, keyof RecCounts]> = [["Strong Buy", "strongBuy"], ["Buy", "buy"], ["Hold", "hold"], ["Sell", "sell"], ["Strong Sell", "strongSell"]];
 
-function AnalystBlock({ monitor, rec, brief }: { monitor?: MonitorResult; rec?: Rec; brief?: string }) {
+// A tiny line chart of the average analyst target over trailing windows (Year → Quarter → Month),
+// so the direction the consensus target is moving is visible at a glance.
+function TargetTrend({ trend }: { trend: NonNullable<PriceTarget["trend"]> }) {
+  const pts = [
+    { label: "Year", w: trend.year },
+    { label: "Quarter", w: trend.quarter },
+    { label: "Month", w: trend.month },
+  ].filter((p): p is { label: string; w: { avg: number; count: number | null } } => p.w.avg != null && p.w.avg > 0);
+  if (pts.length < 2) return null;
+  const vals = pts.map((p) => p.w.avg);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  const pad = (max - min) * 0.4 || max * 0.05 || 1;
+  const lo = min - pad;
+  const hi = max + pad;
+  const W = 300;
+  const H = 78;
+  const padX = 30;
+  const padTop = 16;
+  const padBot = 18;
+  const x = (i: number) => padX + (i * (W - 2 * padX)) / (pts.length - 1);
+  const y = (v: number) => padTop + (1 - (v - lo) / (hi - lo || 1)) * (H - padTop - padBot);
+  const up = vals[vals.length - 1] >= vals[0];
+  const stroke = up ? "rgba(52,211,153,0.75)" : "rgba(251,113,133,0.75)";
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.w.avg).toFixed(1)}`).join(" ");
+  return (
+    <div className="mt-2.5" style={{ maxWidth: 320 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="Average analyst price target over the last year, quarter and month">
+        <path d={d} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map((p, i) => (
+          <g key={p.label}>
+            <circle cx={x(i)} cy={y(p.w.avg)} r="2.6" fill={stroke} />
+            <text x={x(i)} y={y(p.w.avg) - 6} textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.82)">${Math.round(p.w.avg)}</text>
+            <text x={x(i)} y={H - 5} textAnchor="middle" fontSize="9" fill="#737373">{p.label}</text>
+          </g>
+        ))}
+      </svg>
+      <p className="mt-1 text-right text-[10px] text-[#737373]">Avg analyst target, trailing window</p>
+    </div>
+  );
+}
+
+function AnalystBlock({ monitor, rec, brief, target, price }: { monitor?: MonitorResult; rec?: Rec; brief?: string; target?: PriceTarget; price?: number | null }) {
   const maxCount = rec?.counts ? Math.max(1, ...Object.values(rec.counts)) : 1;
-  // The agent's research narrative (markdown links flattened to plain text) and the concrete evidence
-  // it pulled (price / news / analyst), parsed from its signals JSON.
+  // The agent's research narrative (markdown links flattened to plain text).
   const rationale = (monitor?.rationale || brief || "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim();
-  let evidence: Array<[string, string]> = [];
-  if (monitor?.signals) {
-    try {
-      const p = JSON.parse(monitor.signals);
-      if (p && typeof p === "object" && !Array.isArray(p)) evidence = Object.entries(p).filter((e): e is [string, string] => typeof e[1] === "string" && !!e[1]);
-    } catch { /* ignore */ }
-  }
+  const hasTarget = !!target && (target.consensus != null || target.high != null);
+  const upside = hasTarget && target!.consensus != null && price != null && price > 0 ? (target!.consensus - price) / price : null;
   return (
     <div className="space-y-3">
-      {(rationale || evidence.length > 0) && (
+      {rationale && (
         <div>
           <p className="text-[11px] uppercase tracking-wide text-[#737373]">Thesis Research</p>
-          {rationale && <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{rationale}</p>}
-          {evidence.length > 0 && (
-            <div className="mt-2.5 space-y-1.5">
-              {evidence.map(([k, v]) => (
-                <p key={k} className="text-[12px] leading-relaxed text-white/55">
-                  <span className="uppercase tracking-wide text-[#737373]">{k}</span> {v}
-                </p>
-              ))}
-            </div>
-          )}
+          <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{rationale}</p>
+        </div>
+      )}
+      {hasTarget && (
+        <div>
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <p className="text-[11px] uppercase tracking-wide text-[#737373]">Price target</p>
+            {upside != null && <span className={`text-[11px] tabular-nums ${upside >= 0 ? "text-emerald-400/80" : "text-rose-400/80"}`}>{upside >= 0 ? "+" : ""}{(upside * 100).toFixed(0)}% {upside >= 0 ? "upside" : "downside"} from avg</span>}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-baseline gap-x-2.5 gap-y-1 text-[13px]">
+            {target!.consensus != null && <span className="font-medium tabular-nums text-white/85">${target!.consensus.toFixed(0)} <span className="text-[11px] font-normal text-[#737373]">avg</span></span>}
+            {target!.median != null && <span className="tabular-nums text-white/65">${target!.median.toFixed(0)} <span className="text-[11px] text-[#737373]">median</span></span>}
+            {target!.low != null && <span className="tabular-nums text-white/55">${target!.low.toFixed(0)} <span className="text-[11px] text-[#737373]">low</span></span>}
+            {target!.high != null && <span className="tabular-nums text-white/55">${target!.high.toFixed(0)} <span className="text-[11px] text-[#737373]">high</span></span>}
+          </div>
+          {target!.trend && <TargetTrend trend={target!.trend} />}
         </div>
       )}
       {rec && (
@@ -359,7 +409,7 @@ function AnalystBlock({ monitor, rec, brief }: { monitor?: MonitorResult; rec?: 
           </div>
         </div>
       )}
-      {!rationale && evidence.length === 0 && !rec && <p className="text-[12px] text-[#737373]">No research yet for this ticker.</p>}
+      {!rationale && !rec && <p className="text-[12px] text-[#737373]">No research yet for this ticker.</p>}
     </div>
   );
 }
@@ -510,15 +560,15 @@ function CoverageChip({ icon, on, label }: { icon: React.ReactNode; on: boolean;
 // ---------------------------------------------------------------------------------------
 // Per-holding card
 // ---------------------------------------------------------------------------------------
-function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, videos, markets, news, action, conviction, defaultOpen }: {
-  pulse: AssetPulse; name?: string | null; quote?: Quote; monitor?: MonitorResult; rec?: Rec; metric?: Metric;
+function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, reddit, videos, markets, news, action, conviction, defaultOpen }: {
+  pulse: AssetPulse; name?: string | null; quote?: Quote; monitor?: MonitorResult; rec?: Rec; target?: PriceTarget; metric?: Metric;
   brief?: string; reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[]; markets?: MarketsAsset; news?: NewsArticle[];
   action: AssetAction; conviction: AssetConviction; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
   const pct = quote?.percent ?? null;
   const up = (pct ?? 0) >= 0;
-  const hasAnalyst = !!(monitor || rec || brief);
+  const hasAnalyst = !!(monitor || rec || brief || target);
   const hasReddit = !!reddit && reddit.mentions > 0;
   const hasVideos = !!videos && videos.length > 0;
   const hasMarkets = !!markets && markets.events.length > 0;
@@ -541,7 +591,6 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
           {name && <p className="mt-0.5 truncate text-[13px] leading-tight text-[#8a8a8a]">{name}</p>}
         </div>
         <div className="flex shrink-0 items-baseline gap-2.5">
-          <ActionChip action={action.label} size="md" />
           {quote?.price != null && (
             <div className="text-right">
               <p className="text-[15px] leading-tight tabular-nums text-white">{quote.price.toFixed(2)}</p>
@@ -551,7 +600,7 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
         </div>
       </div>
 
-      {/* v1: conviction + the "why" behind the suggested move */}
+      {/* v1: conviction + a one-line read of where the signals lean */}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <ConvictionBadge c={conviction} />
         {action.note && <><span className="text-white/20">·</span><span className="text-[11px] text-white/50">{action.note}</span></>}
@@ -574,7 +623,7 @@ function HoldingCard({ pulse, name, quote, monitor, rec, metric, brief, reddit, 
       {open && (
         <div className="mt-3 space-y-2 border-t border-white/[0.08] pt-3">
           <SignalSection icon={<TrendingUp className="h-3.5 w-3.5" />} title="Analyst" meta={analystLean && <LeanTag lean={analystLean} />} defaultOpen>
-            <AnalystBlock monitor={monitor} rec={rec} brief={brief} />
+            <AnalystBlock monitor={monitor} rec={rec} brief={brief} target={target} price={quote?.price ?? null} />
           </SignalSection>
           {hasReddit && (
             <SignalSection icon={<MessageCircle className="h-3.5 w-3.5" />} title="Reddit" meta={redditLean && <LeanTag lean={redditLean} />}>
@@ -611,10 +660,9 @@ type HoldingCardProps = React.ComponentProps<typeof HoldingCard>;
 function QuietHolding(props: HoldingCardProps) {
   const [expanded, setExpanded] = useState(false);
   if (expanded) return <HoldingCard {...props} defaultOpen={false} />;
-  const { pulse, name, quote, action } = props;
+  const { pulse, name, quote } = props;
   const pct = quote?.percent ?? null;
   const up = (pct ?? 0) >= 0;
-  const lean = action.label === "Hold" || action.label === "Watch" ? "quiet" : action.label.toLowerCase();
   return (
     <button type="button" onClick={() => setExpanded(true)} aria-label={`Expand ${pulse.ticker}`} className="relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-white/[0.07] px-4 py-2.5 text-left" style={{ boxShadow: SHEEN }}>
       <span className="text-[14px] font-medium text-white">{pulse.ticker}</span>
@@ -626,7 +674,6 @@ function QuietHolding(props: HoldingCardProps) {
             <span className={`text-[11px] ${pct == null ? "text-white/40" : up ? "text-emerald-400/80" : "text-rose-400/80"}`}>{pct == null ? "" : `${up ? "+" : ""}${pct.toFixed(1)}%`}</span>
           </>
         )}
-        <span className="text-[10px] uppercase tracking-wide text-white/30">{lean}</span>
         <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-white/25" />
       </span>
     </button>
@@ -807,9 +854,10 @@ const HIVEMIND_TTL = 60_000;
 async function fetchBundle(held: HeldLite[], user?: string): Promise<Bundle> {
   const symbolsQ = held.length ? `?symbols=${encodeURIComponent(held.map((h) => h.ticker).join(","))}` : "";
   const newsQ = held.length ? `?tickers=${encodeURIComponent(held.slice(0, 8).map((h) => h.ticker).join(","))}` : "";
-  const [quoteR, recR, metricR, briefR, monitorR, redditR, youtubeR, newsR, marketsR] = await Promise.all([
+  const [quoteR, recR, targetR, metricR, briefR, monitorR, redditR, youtubeR, newsR, marketsR] = await Promise.all([
     held.length ? safeJSON<{ quotes: Record<string, Quote> }>(`/api/quote${symbolsQ}`) : Promise.resolve(null),
     held.length ? safeJSON<{ recommendations: Record<string, Rec> }>(`/api/recommendation${symbolsQ}`) : Promise.resolve(null),
+    held.length ? safeJSON<{ targets: Record<string, PriceTarget> }>(`/api/price-targets${symbolsQ}`) : Promise.resolve(null),
     held.length ? safeJSON<{ metrics: Record<string, Metric> }>(`/api/metrics${symbolsQ}`) : Promise.resolve(null),
     held.length ? safeJSON<{ briefs: Record<string, string> }>(`/api/analyst-brief${symbolsQ}`) : Promise.resolve(null),
     safeJSON<MonitorPayload>(`/api/monitor${user ? `?user=${encodeURIComponent(user)}` : ""}`),
@@ -831,6 +879,7 @@ async function fetchBundle(held: HeldLite[], user?: string): Promise<Bundle> {
   return {
     quotes: quoteR?.quotes || {},
     recs: recR?.recommendations || {},
+    targets: targetR?.targets || {},
     metrics: metricR?.metrics || {},
     briefs: briefR?.briefs || {},
     monitor,
@@ -1048,8 +1097,8 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     holdingPulses.map((p) => ({ pulse: p.pulse, weight: p.holding.weight ?? 1 })),
   ), [holdingPulses]);
 
-  // v1: per-holding analytics — notability (drives ranking + collapsing), the implied action, and
-  // conviction (how many independent reliable signals agree). Ranked most-notable first.
+  // v1: per-holding analytics — notability (drives ranking + collapsing), a one-line signal-lean
+  // note, and conviction (how many independent reliable signals agree). Ranked most-notable first.
   const holdingViews = useMemo(
     () =>
       holdingPulses
@@ -1145,6 +1194,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     quote: bundle.quotes[v.holding.ticker],
     monitor: bundle.monitor[v.holding.ticker],
     rec: bundle.recs[v.holding.ticker],
+    target: bundle.targets[v.holding.ticker],
     metric: bundle.metrics[v.holding.ticker],
     brief: bundle.briefs[v.holding.ticker],
     reddit: redditByTicker[v.holding.ticker],
