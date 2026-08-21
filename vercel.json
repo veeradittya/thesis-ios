@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/push/dispatch-scheduled", "schedule": "*/15 * * * *" },
-    { "path": "/api/push/schedule-takeaways", "schedule": "0 11 * * *" }
+    { "path": "/api/push/schedule-takeaways", "schedule": "0 11 * * *" },
+    { "path": "/api/hivemind/build-pages", "schedule": "0 12 * * *" }
   ]
 }

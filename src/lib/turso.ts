@@ -346,6 +346,47 @@ export async function putYouTubeSocialRows(rows: Array<{ ticker: string; generat
   ]);
 }
 
+// Every distinct user that holds at least one position — the set of portfolios the scheduled Hivemind
+// page builder generates a page for (mirrors the CMA agent's `SELECT DISTINCT user_id FROM holdings`).
+export async function getDistinctHoldingUserIds(): Promise<string[]> {
+  const rows = await query("SELECT DISTINCT user_id FROM holdings");
+  return rows.map((r) => r.user_id).filter((v): v is string => Boolean(v));
+}
+
+// The precomputed Hivemind page for one user — the whole page (bundle + takeaways + per-asset
+// overviews) built ONCE per scheduled run and stored as one JSON blob, so the app reads it with no
+// live LLM/synthesis. The client overlays live price separately; everything here is frozen to the run.
+export async function putHivemindPage(userId: string, payloadJson: string, generatedAt: string): Promise<void> {
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: "CREATE TABLE IF NOT EXISTS hivemind_pages (user_id TEXT PRIMARY KEY, payload TEXT NOT NULL, generated_at TEXT NOT NULL)",
+        args: [],
+      },
+    },
+    {
+      type: "execute",
+      stmt: {
+        sql: `INSERT INTO hivemind_pages (user_id, payload, generated_at) VALUES (?,?,?)
+              ON CONFLICT(user_id) DO UPDATE SET payload=excluded.payload, generated_at=excluded.generated_at`,
+        args: [typed(userId), typed(payloadJson), typed(generatedAt)],
+      },
+    },
+  ]);
+}
+
+export async function getHivemindPage(userId: string): Promise<{ payload: string; generatedAt: string } | null> {
+  try {
+    const rows = await query("SELECT payload, generated_at FROM hivemind_pages WHERE user_id=?", [userId]);
+    const r = rows[0];
+    if (!r?.payload || !r.generated_at) return null;
+    return { payload: r.payload, generatedAt: r.generated_at };
+  } catch {
+    return null; // table does not exist until the first page is built
+  }
+}
+
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
 // sign-in); last_seen and sign_in_count are bumped every time. Gives the agent a durable "is this a
 // new user?" signal and powers the backend monitoring of who has signed in.

@@ -20,16 +20,19 @@ import {
   getNewsOverviews,
   getRedditSocialRows,
   getYouTubeSocialRows,
+  type MonitorPayload,
   type MonitorResult,
+  type NewsOverviewRow,
 } from "@/lib/turso";
-import { getQuotes } from "@/lib/prices";
-import { getRecommendations } from "@/lib/recommendation";
-import { getPriceTargets } from "@/lib/priceTargets";
+import { getQuotes, type Quote } from "@/lib/prices";
+import { getRecommendations, type Recommendation } from "@/lib/recommendation";
+import { getPriceTargets, type PriceTarget } from "@/lib/priceTargets";
+import { getMetrics, type StockMetric } from "@/lib/metrics";
 import { getNews, type Article } from "@/lib/news";
-import { getPortfolioMarkets, type HoldingLite, type MarketsAsset } from "@/lib/oddpool";
+import { getPortfolioMarkets, type HoldingLite, type MarketsAsset, type MarketsPayload } from "@/lib/oddpool";
 import { filterRedditSnapshots, normalizeRedditSnapshot, type RedditSocialSnapshot } from "@/lib/redditSocial";
 import { filterYouTubeSnapshots, normalizeYouTubeSnapshot } from "@/lib/youtubeSocial";
-import type { YouTubeSocialVideo } from "@/lib/youtubeSocial";
+import type { YouTubeSocialSnapshot, YouTubeSocialVideo } from "@/lib/youtubeSocial";
 
 const norm = (t: string) => (t || "").trim().toUpperCase();
 
@@ -109,54 +112,94 @@ function buildSnapshot(
   };
 }
 
-// Assemble the portfolio snapshot for one user entirely from server sources, mirroring the client's
-// fetch fan-out + per-holding AssetSignals build (Hivemind.tsx `fetchBundle` + `holdingPulses`).
-export async function buildServerSnapshot(userId: string, holdings: TakeawayHolding[]): Promise<ReturnType<typeof buildSnapshot>> {
+// One normalized holding (ticker uppercased, name coerced to a string, weight or null).
+type HeldServer = { ticker: string; name: string; weight: number | null };
+type HoldingPulse = { holding: HeldServer; pulse: AssetPulse; signals: AssetSignals };
+
+// Everything a Hivemind page for one user is built from, fetched ONCE (the same fan-out the client's
+// `fetchBundle` runs, plus `getMetrics`), with the per-holding AssetSignals → pulse already computed.
+// Both `buildServerSnapshot` (the compact LLM snapshot) and `buildServerBundle` (the exact client
+// Bundle) derive from this, so the page is never fetched twice. Reddit/YouTube are fetched UNFILTERED
+// (all live snapshots, held + opportunities) to match the client's unfiltered `/api/social/*` calls;
+// the per-holding maps below filter that same set down to the held tickers.
+export interface HivemindFetch {
+  held: HeldServer[];
+  tickers: string[];
+  quotes: Record<string, Quote>;
+  recs: Record<string, Recommendation>;
+  targets: Record<string, PriceTarget>;
+  metrics: Record<string, StockMetric>;
+  briefs: Record<string, string>;
+  monitor: MonitorPayload;
+  redditAll: RedditSocialSnapshot[]; // all live snapshots, sorted by mentions (held + opportunities)
+  youtubeAll: YouTubeSocialSnapshot[]; // all live snapshots with videos
+  articles: Article[];
+  newsOverviews: Record<string, NewsOverviewRow>;
+  markets: MarketsPayload;
+  holdingPulses: HoldingPulse[];
+  portfolio: PortfolioPulse;
+  redditGeneratedAt: string | null; // max generatedAt across the reddit snapshots (client's bundle.generatedAt)
+}
+
+const EMPTY_MARKETS: MarketsPayload = { source: "", fetchedAt: "", assetCount: 0, marketCount: 0, assets: [] };
+
+// Run the whole fetch fan-out for one user and build the per-holding pulses. Shared by every server
+// Hivemind consumer so the 11-source fan-out fires exactly once per (user, holdings).
+export async function fetchHivemindData(userId: string, holdings: TakeawayHolding[]): Promise<HivemindFetch> {
   // Dedup + normalize holdings, preserving ledger order (as the client's `held` does).
   const seen = new Set<string>();
-  const held = holdings
+  const held: HeldServer[] = holdings
     .map((h) => ({ ticker: norm(h.ticker), name: (h.name || "") as string, weight: h.weight ?? null }))
     .filter((h) => h.ticker && !seen.has(h.ticker) && seen.add(h.ticker));
 
   if (!held.length) {
-    const portfolio = aggregatePortfolioPulse([]);
-    return buildSnapshot(portfolio, []);
+    return {
+      held: [], tickers: [], quotes: {}, recs: {}, targets: {}, metrics: {}, briefs: {},
+      monitor: await getLatestMonitor(userId).catch(() => ({ memo: null, updatedAt: null, results: [] })),
+      redditAll: [], youtubeAll: [], articles: [], newsOverviews: {}, markets: EMPTY_MARKETS,
+      holdingPulses: [], portfolio: aggregatePortfolioPulse([]), redditGeneratedAt: null,
+    };
   }
 
   const tickers = held.map((h) => h.ticker);
   const holdingLites: HoldingLite[] = held.map((h) => ({ ticker: h.ticker, name: h.name, weight: h.weight }));
 
-  const [quotes, recs, targets, briefs, monitor, redditPayloads, youtubePayloads, articles, newsOverviews, marketsPayload] = await Promise.all([
+  const [quotes, recs, targets, metrics, briefs, monitor, redditPayloads, youtubePayloads, articles, newsOverviews, markets] = await Promise.all([
     getQuotes(tickers),
     getRecommendations(tickers),
-    getPriceTargets(tickers), // fetched to mirror the client bundle; not part of the snapshot itself
+    getPriceTargets(tickers),
+    getMetrics(tickers),
     getAnalystBriefs(tickers),
     getLatestMonitor(userId),
-    getRedditSocialRows(tickers),
-    getYouTubeSocialRows(tickers),
+    getRedditSocialRows([]), // unfiltered: all live snapshots (held + opportunities), like /api/social/reddit
+    getYouTubeSocialRows([]),
     getNews(tickers.slice(0, 8)),
     getNewsOverviews(tickers),
     getPortfolioMarkets(holdingLites),
   ]);
-  void targets; // parity fetch only
 
   // Agent research per ticker.
   const monitorByTicker: Record<string, MonitorResult> = {};
   for (const r of monitor.results || []) monitorByTicker[norm(r.ticker)] = r;
 
-  // Reddit: normalize the stored payloads, then filter/sort to the held tickers (mirrors the route).
+  // Reddit: normalize all stored payloads, sorted by mentions (filter([]) = keep all, mirrors the route).
   const redditLive = redditPayloads.flatMap((raw) => {
     try { const snap = normalizeRedditSnapshot(JSON.parse(raw)); return snap ? [snap] : []; } catch { return []; }
   });
+  const redditAll = filterRedditSnapshots(redditLive, []);
+  const redditGeneratedAt = redditAll.length
+    ? redditAll.reduce((latest, row) => (Date.parse(row.generatedAt) > Date.parse(latest) ? row.generatedAt : latest), redditAll[0].generatedAt)
+    : null;
   const redditByTicker: Record<string, RedditSocialSnapshot> = {};
-  for (const snap of filterRedditSnapshots(redditLive, tickers)) redditByTicker[norm(snap.ticker)] = snap;
+  for (const snap of filterRedditSnapshots(redditAll, tickers)) redditByTicker[norm(snap.ticker)] = snap;
 
-  // YouTube: normalize + filter, then split into per-ticker videos / lean.
+  // YouTube: normalize all, keep the ones with videos; per-ticker maps filter to the held tickers.
   const youtubeLive = youtubePayloads.flatMap((raw) => {
     try { const row = normalizeYouTubeSnapshot(JSON.parse(raw)); return row ? [row] : []; } catch { return []; }
   });
+  const youtubeAll = filterYouTubeSnapshots(youtubeLive, []);
   const youtubeByTicker: Record<string, YouTubeSocialVideo[]> = {};
-  for (const snap of filterYouTubeSnapshots(youtubeLive, tickers)) {
+  for (const snap of filterYouTubeSnapshots(youtubeAll, tickers)) {
     if (snap.videos.length) youtubeByTicker[norm(snap.ticker)] = snap.videos;
   }
 
@@ -168,10 +211,10 @@ export async function buildServerSnapshot(userId: string, holdings: TakeawayHold
 
   // Prediction markets grouped by ticker.
   const marketsByTicker: Record<string, MarketsAsset> = {};
-  for (const a of marketsPayload.assets || []) if (a.events.length) marketsByTicker[norm(a.ticker)] = a;
+  for (const a of markets.assets || []) if (a.events.length) marketsByTicker[norm(a.ticker)] = a;
 
   // Build per-holding AssetSignals → pulse (mirrors Hivemind.tsx `holdingPulses`).
-  const holdingPulses = held.map((h) => {
+  const holdingPulses: HoldingPulse[] = held.map((h) => {
     const mon = monitorByTicker[h.ticker];
     const marketsAsset = marketsByTicker[h.ticker];
     const newsArr = newsByTicker[h.ticker];
@@ -210,7 +253,21 @@ export async function buildServerSnapshot(userId: string, holdings: TakeawayHold
   });
 
   const portfolio = aggregatePortfolioPulse(holdingPulses.map((p) => ({ pulse: p.pulse, weight: p.holding.weight ?? 1 })));
-  return buildSnapshot(portfolio, holdingPulses);
+  return {
+    held, tickers, quotes, recs, targets, metrics, briefs, monitor,
+    redditAll, youtubeAll, articles, newsOverviews, markets, holdingPulses, portfolio, redditGeneratedAt,
+  };
+}
+
+// The compact LLM snapshot from already-fetched data (no re-fetch).
+export function snapshotFromData(data: HivemindFetch): ReturnType<typeof buildSnapshot> {
+  return buildSnapshot(data.portfolio, data.holdingPulses);
+}
+
+// Assemble the portfolio snapshot for one user entirely from server sources, mirroring the client's
+// fetch fan-out + per-holding AssetSignals build (Hivemind.tsx `fetchBundle` + `holdingPulses`).
+export async function buildServerSnapshot(userId: string, holdings: TakeawayHolding[]): Promise<ReturnType<typeof buildSnapshot>> {
+  return snapshotFromData(await fetchHivemindData(userId, holdings));
 }
 
 // Full pipeline for one user: build the snapshot from server sources, then run the same LLM overview

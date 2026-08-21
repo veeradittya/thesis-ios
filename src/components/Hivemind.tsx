@@ -809,9 +809,17 @@ function LoadingSkeleton() {
 // fires once per (holdings, user) scope instead of once per remount. Instances that mount while a
 // fetch is in flight join its promise rather than starting their own.
 type HeldLite = { ticker: string; name: string; weight: number | null };
-let hivemindCache: { key: string; bundle: Bundle; at: number } | null = null;
+let hivemindCache: { key: string; bundle: Bundle; at: number; stored?: boolean; takeaways?: OverviewData | null; assetOverviews?: Record<string, string> | null } | null = null;
 let hivemindInFlight: { key: string; promise: Promise<Bundle> } | null = null;
 const HIVEMIND_TTL = 60_000;
+
+// The precomputed per-user Hivemind page — built once per agent run by /api/hivemind/build-pages and
+// stored in Turso. The analysis (takeaways, per-asset overviews, leans, signals) is frozen to that run;
+// the client renders it and overlays only the live price. Absent (guest before first build) → live build.
+type StoredPage = { generatedAt: string | null; bundle: Bundle | null; takeaways: OverviewData | null; assetOverviews: Record<string, string> | null };
+async function fetchStoredPage(user?: string): Promise<StoredPage | null> {
+  return safeJSON<StoredPage>(`/api/hivemind/page${user ? `?user=${encodeURIComponent(user)}` : ""}`);
+}
 
 async function fetchBundle(held: HeldLite[], user?: string): Promise<Bundle> {
   const symbolsQ = held.length ? `?symbols=${encodeURIComponent(held.map((h) => h.ticker).join(","))}` : "";
@@ -977,6 +985,12 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   const warm = hivemindCache?.key === cacheKey ? hivemindCache : null;
   const [bundle, setBundle] = useState<Bundle>(() => warm?.bundle ?? EMPTY_BUNDLE);
   const [loading, setLoading] = useState(() => !warm);
+  // When a precomputed page is loaded, `storedMode` is true and the two takeaway/overview LLM effects are
+  // skipped in favour of the frozen, stored values.
+  const [storedMode, setStoredMode] = useState(() => warm?.stored ?? false);
+  const [storedTakeaways, setStoredTakeaways] = useState<OverviewData | null>(() => warm?.takeaways ?? null);
+  const [storedAssetOverviews, setStoredAssetOverviews] = useState<Record<string, string> | null>(() => warm?.assetOverviews ?? null);
+  const [liveQuotes, setLiveQuotes] = useState<Record<string, Quote>>({});
   const reqId = useRef(0);
 
   const load = useCallback(async (force = false) => {
@@ -985,11 +999,32 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     // Fresh cache → paint instantly, no network (covers hydration remounts).
     if (!force && hivemindCache?.key === key && Date.now() - hivemindCache.at < HIVEMIND_TTL) {
       setBundle(hivemindCache.bundle);
+      setStoredMode(hivemindCache.stored ?? false);
+      setStoredTakeaways(hivemindCache.takeaways ?? null);
+      setStoredAssetOverviews(hivemindCache.assetOverviews ?? null);
       setLoading(false);
       return;
     }
     setLoading(true);
-    // Join an in-flight fan-out for the same scope, or start one (and cache its result).
+    // 1) Prefer the precomputed page (analysis frozen to the last agent run).
+    try {
+      const page = await fetchStoredPage(user);
+      if (id !== reqId.current) return;
+      if (page?.bundle) {
+        setBundle(page.bundle);
+        setStoredTakeaways(page.takeaways ?? null);
+        setStoredAssetOverviews(page.assetOverviews ?? null);
+        setStoredMode(true);
+        hivemindCache = { key, bundle: page.bundle, at: Date.now(), stored: true, takeaways: page.takeaways ?? null, assetOverviews: page.assetOverviews ?? null };
+        setLoading(false);
+        return;
+      }
+    } catch {
+      /* no stored page → fall through to a live build */
+    }
+    if (id !== reqId.current) return;
+    // 2) Fallback: build the bundle live (guest/demo, or a user whose page hasn't been built yet).
+    setStoredMode(false);
     let promise: Promise<Bundle>;
     if (!force && hivemindInFlight?.key === key) {
       promise = hivemindInFlight.promise;
@@ -997,7 +1032,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
       promise = fetchBundle(held, user);
       hivemindInFlight = { key, promise };
       promise
-        .then((b) => { hivemindCache = { key, bundle: b, at: Date.now() }; })
+        .then((b) => { hivemindCache = { key, bundle: b, at: Date.now(), stored: false }; })
         .catch(() => {})
         .finally(() => { if (hivemindInFlight?.key === key) hivemindInFlight = null; });
     }
@@ -1010,6 +1045,18 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   }, [heldKey, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { void load(); }, [load]);
+
+  // Live price overlay: the analysis is frozen to the stored page, but the displayed quote stays live —
+  // fetched separately and merged only into each card's price display (never into the frozen synthesis).
+  useEffect(() => {
+    if (!held.length) { setLiveQuotes({}); return; }
+    let cancelled = false;
+    const symbolsQ = `?symbols=${encodeURIComponent(held.map((h) => h.ticker).join(","))}`;
+    safeJSON<{ quotes: Record<string, Quote> }>(`/api/quote${symbolsQ}`).then((r) => {
+      if (!cancelled && r?.quotes) setLiveQuotes(r.quotes);
+    });
+    return () => { cancelled = true; };
+  }, [heldKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Build per-holding signals → pulses, then the portfolio aggregate.
   const redditByTicker = useMemo(() => {
@@ -1090,6 +1137,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   const snapshotKey = useMemo(() => JSON.stringify(snapshot), [snapshot]);
   const [llm, setLlm] = useState<OverviewData | null>(() => (overviewCache?.key === snapshotKey ? overviewCache.data : null));
   useEffect(() => {
+    if (storedMode) return; // takeaways come from the stored page; no live generation
     const key = snapshotKey;
     if (!snapshot.holdings.length) { setLlm(null); return; }
     if (overviewCache?.key === key) { setLlm(overviewCache.data); return; }
@@ -1116,6 +1164,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     () => (assetOverviewCache?.key === snapshotKey ? assetOverviewCache.data : null),
   );
   useEffect(() => {
+    if (storedMode) return; // overviews come from the stored page; no live generation
     const key = snapshotKey;
     if (!snapshot.holdings.length) { setAssetOverviews(null); return; }
     if (assetOverviewCache?.key === key) { setAssetOverviews(assetOverviewCache.data); return; }
@@ -1136,11 +1185,13 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     return () => { cancelled = true; };
   }, [snapshotKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Only the real LLM read is shown; null → the Hero pulses skeletons until it loads.
-  // Trim takeaways (the risk-off "reduce" call) float to the top; stable sort keeps the rest in order.
-  const points: BriefPoint[] | null = llm?.points
-    ? [...llm.points].sort((a, b) => Number(b.action === "Trim") - Number(a.action === "Trim"))
+  // Takeaways come from the stored page when present, else the live LLM read; null → the Hero pulses
+  // skeletons. Trim takeaways (the risk-off "reduce" call) float to the top; stable sort keeps the rest.
+  const overviewData = storedMode ? storedTakeaways : llm;
+  const points: BriefPoint[] | null = overviewData?.points
+    ? [...overviewData.points].sort((a, b) => Number(b.action === "Trim") - Number(a.action === "Trim"))
     : null;
+  const effectiveAssetOverviews = storedMode ? storedAssetOverviews : assetOverviews;
 
   const showLoading = loading && !holdingPulses.some((p) => p.pulse.signalCount > 0);
 
@@ -1153,9 +1204,9 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   if (signalOnly) quiet = [];
   const cardProps = (v: (typeof holdingViews)[number]) => ({
     pulse: v.pulse,
-    overview: assetOverviews?.[String(v.holding.ticker).toUpperCase()] ?? null,
+    overview: effectiveAssetOverviews?.[String(v.holding.ticker).toUpperCase()] ?? null,
     name: v.holding.name,
-    quote: bundle.quotes[v.holding.ticker],
+    quote: liveQuotes[v.holding.ticker] ?? bundle.quotes[v.holding.ticker],
     monitor: bundle.monitor[v.holding.ticker],
     rec: bundle.recs[v.holding.ticker],
     target: bundle.targets[v.holding.ticker],
