@@ -701,14 +701,10 @@ function TogglePill({ active, onClick, icon, children }: { active: boolean; onCl
 // Live News — Bloomberg Television, streamed inline. "Attach" resolves the channel's current
 // live broadcast (via /api/hivemind/live-news) and embeds it; the card expands to a 16:9 player.
 // ---------------------------------------------------------------------------------------
-const LIVE_NEWS_CHANNEL = "UCIALMKvObZNtJ6AmdCLP7Lg"; // Bloomberg Television
-const LIVE_NEWS_URL = `https://www.youtube.com/channel/${LIVE_NEWS_CHANNEL}/live`;
-
 function LiveNewsCard() {
   const [attached, setAttached] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [src, setSrc] = useState<string | null>(null); // embed URL when a live videoId resolved; null → external-link state
-  const [watchUrl, setWatchUrl] = useState(LIVE_NEWS_URL); // "Watch on YouTube" link (opens externally)
+  const [src, setSrc] = useState<string | null>(null); // embed URL when a live videoId resolved
 
   const attach = useCallback(async () => {
     setLoading(true);
@@ -720,20 +716,16 @@ function LiveNewsCard() {
       if (origin) q.set("origin", origin);
       return `${base}?${q.toString()}`;
     };
-    // Only embed a resolved specific videoId. The channel `live_stream?channel=` form is NOT used — it
-    // errors 153 in production. When no id resolves, fall back to a "Watch on YouTube" link instead.
+    // Only embed a resolved specific videoId (the channel live_stream?channel= form errors 153 in prod).
     let embed: string | null = null;
-    let url = LIVE_NEWS_URL;
     try {
       const res = await fetch("/api/hivemind/live-news", { cache: "no-store" });
-      const data = (await res.json()) as { videoId?: string | null; channelUrl?: string };
-      if (typeof data?.channelUrl === "string" && data.channelUrl) url = data.channelUrl;
+      const data = (await res.json()) as { videoId?: string | null };
       if (data?.videoId) embed = params(`https://www.youtube.com/embed/${data.videoId}`);
     } catch {
-      // keep the external-link fallback
+      // leave src null → the card shows an "unavailable" message
     }
     setSrc(embed);
-    setWatchUrl(url);
     setAttached(true);
     setLoading(false);
   }, []);
@@ -775,40 +767,19 @@ function LiveNewsCard() {
       {attached && (
         <div className="relative w-full border-t border-white/[0.08] bg-black" style={{ aspectRatio: "16 / 9" }}>
           {src ? (
-            <>
-              <iframe
-                key={src}
-                src={src}
-                title="Bloomberg Television — Live"
-                className="absolute inset-0 h-full w-full"
-                allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                allowFullScreen
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-              {/* Escape hatch: if the embed is blocked ("Video unavailable"), the user can still open it. */}
-              <a
-                href={watchUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="absolute bottom-2 right-2 z-10 inline-flex items-center gap-1 rounded-full bg-black/65 px-2.5 py-1 text-[10.5px] font-medium text-white/75 backdrop-blur-md transition-colors hover:text-white"
-              >
-                <ExternalLink className="h-3 w-3" />
-                YouTube
-              </a>
-            </>
-          ) : loading ? (
-            <div className="absolute inset-0 grid place-items-center text-[12px] text-white/40">Connecting to Bloomberg Television…</div>
+            <iframe
+              key={src}
+              src={src}
+              title="Bloomberg Television — Live"
+              className="absolute inset-0 h-full w-full"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              referrerPolicy="strict-origin-when-cross-origin"
+            />
           ) : (
-            // No embeddable live id resolved (or blocked on the server IP) → offer the external stream.
-            <a href={watchUrl} target="_blank" rel="noreferrer" className="absolute inset-0 grid place-items-center px-4 text-center">
-              <span className="flex flex-col items-center gap-2.5">
-                <span className="grid h-11 w-11 place-items-center rounded-full bg-rose-600/90">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="ml-0.5 text-white"><path d="M8 5v14l11-7z" /></svg>
-                </span>
-                <span className="text-[13px] font-medium text-white/85">Watch Bloomberg Television live</span>
-                <span className="inline-flex items-center gap-1 text-[11px] text-white/45"><ExternalLink className="h-3 w-3" /> Opens in YouTube</span>
-              </span>
-            </a>
+            <div className="absolute inset-0 grid place-items-center px-4 text-center text-[12px] text-white/40">
+              {loading ? "Connecting to Bloomberg Television…" : "Live stream is unavailable right now."}
+            </div>
           )}
         </div>
       )}
