@@ -2,6 +2,8 @@
 // Holds the app's portfolio (holdings + theses) that the scheduled CMA agent reads, and serves
 // the agent's written results (per-holding verdicts + run risk memos) back to the dashboard.
 
+import { randomUUID } from "node:crypto";
+
 const PIPELINE = (process.env.TURSO_DATABASE_URL || "").replace(/^libsql:\/\//, "https://") + "/v2/pipeline";
 const TOKEN = process.env.TURSO_AUTH_TOKEN || "";
 
@@ -547,4 +549,91 @@ export async function getFreshBriefPushTargets(windowMs: number): Promise<PushTa
     if (Number.isFinite(at) && at >= cutoff && r.token) out.push({ userId: r.user_id!, token: r.token, platform: r.platform });
   }
   return out;
+}
+
+// Every registered push-token row (all users). Used by the takeaway scheduler to enumerate who to
+// generate for, and by the dispatcher to map a scheduled row's user_id → their device token(s).
+export async function getAllPushTargets(): Promise<PushTarget[]> {
+  const rows = await query("SELECT user_id, token, platform FROM push_tokens");
+  return rows
+    .filter((r) => r.user_id && r.token)
+    .map((r) => ({ userId: r.user_id!, token: r.token!, platform: r.platform }));
+}
+
+// ── Scheduled takeaway pushes ────────────────────────────────────────────────
+// One row per takeaway notification, each with an independent random fire time inside the trading-day
+// window. The scheduler (schedule-takeaways) inserts them once per user per day (deduped on run_date);
+// the dispatcher (dispatch-scheduled) polls every few minutes for rows whose fire_at has passed, sends
+// them via APNs, and stamps sent_at. `run_date` is the ET calendar date the batch was generated for.
+export interface ScheduledPush {
+  id: string;
+  userId: string;
+  title: string | null;
+  body: string;
+  fireAt: string; // ISO-8601 UTC
+  sentAt: string | null;
+  runDate: string; // YYYY-MM-DD (America/New_York)
+}
+
+const SCHEDULED_PUSHES_DDL =
+  "CREATE TABLE IF NOT EXISTS scheduled_pushes (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, title TEXT, body TEXT NOT NULL, fire_at TEXT NOT NULL, sent_at TEXT, run_date TEXT NOT NULL)";
+
+// Insert a batch of scheduled pushes. Runs the CREATE TABLE guard first (in the same pipeline) so no
+// manual migration is ever needed. Ids come from crypto.randomUUID (no Math.random dependency).
+export async function insertScheduledPushes(
+  rows: Array<{ userId: string; title: string | null; body: string; fireAt: string; runDate: string }>,
+): Promise<number> {
+  if (!rows.length) return 0;
+  const requests: unknown[] = [{ type: "execute", stmt: { sql: SCHEDULED_PUSHES_DDL, args: [] } }];
+  for (const r of rows) {
+    requests.push({
+      type: "execute",
+      stmt: {
+        sql: "INSERT INTO scheduled_pushes (id, user_id, title, body, fire_at, sent_at, run_date) VALUES (?,?,?,?,?,NULL,?)",
+        args: [typed(randomUUID()), typed(r.userId), typed(r.title), typed(r.body), typed(r.fireAt), typed(r.runDate)],
+      },
+    });
+  }
+  await pipeline(requests);
+  return rows.length;
+}
+
+// Rows whose fire time has arrived and that haven't been sent yet (oldest first, capped). Returns []
+// if the table doesn't exist yet (no batch has ever been scheduled).
+export async function getDueScheduledPushes(nowIso: string): Promise<ScheduledPush[]> {
+  try {
+    const rows = await query(
+      "SELECT id, user_id, title, body, fire_at, sent_at, run_date FROM scheduled_pushes WHERE fire_at <= ? AND sent_at IS NULL ORDER BY fire_at ASC LIMIT 200",
+      [nowIso],
+    );
+    return rows.map((r) => ({
+      id: r.id || "",
+      userId: r.user_id || "",
+      title: r.title,
+      body: r.body || "",
+      fireAt: r.fire_at || "",
+      sentAt: r.sent_at,
+      runDate: r.run_date || "",
+    }));
+  } catch {
+    return []; // table not created yet
+  }
+}
+
+// Stamp a scheduled push as sent (so the dispatcher never re-sends it).
+export async function markScheduledPushSent(id: string): Promise<void> {
+  await pipeline([
+    { type: "execute", stmt: { sql: "UPDATE scheduled_pushes SET sent_at=? WHERE id=?", args: [typed(new Date().toISOString()), typed(id)] } },
+  ]);
+}
+
+// How many scheduled pushes a user already has for a given ET run_date — the scheduler's per-user/day
+// dedupe (skip a user whose batch is already in place). Returns 0 if the table doesn't exist yet.
+export async function countScheduledPushesForUserOnDate(userId: string, runDate: string): Promise<number> {
+  try {
+    const rows = await query("SELECT COUNT(*) AS n FROM scheduled_pushes WHERE user_id=? AND run_date=?", [userId, runDate]);
+    return rows.length ? Number(rows[0].n ?? 0) : 0;
+  } catch {
+    return 0; // table not created yet
+  }
 }
