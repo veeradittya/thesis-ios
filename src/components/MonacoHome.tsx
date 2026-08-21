@@ -4,8 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession, signIn, signOut } from "next-auth/react";
 import { computeHomeLayout, MOBILE_BREAKPOINT, MOBILE_CARD_HEIGHTS } from "@/lib/cardLayout";
 import { StaticLayoutContext } from "@/components/ui/useMovableCard";
-import { readQuoteCache, writeQuoteCache } from "@/lib/priceCache";
-import { MarketHoursPill } from "@/components/MarketHoursPill";
+import { Hivemind } from "@/components/Hivemind";
 import { SignInButtons } from "@/components/SignInButtons";
 import { LedgerCard } from "@/components/LedgerCard";
 import { PortfolioLedger } from "@/components/PortfolioLedger";
@@ -70,96 +69,6 @@ function cleanCompany(name: string): string {
 
 // In-flow wrapper for a card in the mobile stack: reserves the card's readable height
 // while the card itself (absolute + 100%×100% under StaticLayoutContext) fills it.
-// Price / day-change formatters — identical to the holdings ledger.
-const fmtPrice = (v: number | null) => (v == null ? "—" : v.toFixed(2));
-const fmtPct = (v: number | null) => (v == null ? "" : `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`);
-
-// Analyst-recommendation pill: fully transparent glass (backdrop-blur + white glass-edge ring, no tint,
-// no sheen) with coloured text by sentiment (bullish = emerald, hold = amber, bearish = rose).
-const recColor = (label: string) =>
-  label === "Strong Buy" || label === "Buy"
-    ? "text-emerald-300"
-    : label === "Hold"
-      ? "text-amber-300"
-      : "text-rose-300"; // Sell / Strong Sell
-
-// The five Finnhub rating buckets, most-bullish first — rows of the expanded ratings breakdown.
-const RATING_ROWS: Array<[string, "strongBuy" | "buy" | "hold" | "sell" | "strongSell"]> = [
-  ["Strong Buy", "strongBuy"],
-  ["Buy", "buy"],
-  ["Hold", "hold"],
-  ["Sell", "sell"],
-  ["Strong Sell", "strongSell"],
-];
-
-// low ── current-dot ── high range slider (Day Range / 52-Week Range on the Analyst Sentiment cards).
-// The current price is labelled top-right (with a dot glyph matching the marker); Low/High are labelled below.
-function RangeSlider({ label, low, cur, high }: { label: string; low: number; cur: number; high: number }) {
-  const pct = high > low ? Math.min(100, Math.max(0, ((cur - low) / (high - low)) * 100)) : 50;
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-[#8a8a8a]">{label}</span>
-        <span className="text-[11.5px] font-medium tabular-nums text-white">{cur.toFixed(2)}</span>
-      </div>
-      <div className="relative mt-2 h-4 rounded-[3px] bg-white/[0.08]">
-        <div
-          className="absolute top-1/2 h-2.5 w-2.5 rounded-full bg-white"
-          style={{ left: `${pct}%`, transform: "translate(-50%, -50%)", boxShadow: "0 0 0 2px rgba(0,0,0,0.45)" }}
-        />
-      </div>
-      <div className="mt-1.5 flex items-baseline justify-between text-[10px]">
-        <span className="text-[#8a8a8a]">Low <span className="tabular-nums text-white/85">{low.toFixed(2)}</span></span>
-        <span className="text-[#8a8a8a]">High <span className="tabular-nums text-white/85">{high.toFixed(2)}</span></span>
-      </div>
-    </div>
-  );
-}
-
-// Combined range slider: one 52-week track with TODAY's range highlighted as an inner band and the
-// current-price dot. Today's range sits inside the year (often near an edge) with no room for inline
-// labels, so an arrow points down at that band; the ends are the 52-week low/high, the dot is "now".
-function CombinedRangeSlider({ week52Low, week52High, cur, dayLow, dayHigh }: { week52Low: number; week52High: number; cur: number; dayLow?: number | null; dayHigh?: number | null }) {
-  const span = week52High - week52Low || 1;
-  const pos = (v: number) => Math.min(100, Math.max(0, ((v - week52Low) / span) * 100));
-  const curPos = pos(cur);
-  const hasDay = dayLow != null && dayHigh != null && dayHigh > dayLow;
-  const dLow = hasDay ? pos(dayLow!) : 0;
-  const dHigh = hasDay ? pos(dayHigh!) : 0;
-  const dayMid = (dLow + dHigh) / 2;
-  return (
-    <div>
-      <span className="text-[13px] text-[#8a8a8a]">Price Range</span>
-      {/* Day-range callout — an arrow points down at today's (tight) amber band inside the 52-week track. */}
-      {hasDay && (
-        <div className="relative mt-3 h-4 text-[9.5px] tabular-nums text-amber-300/90">
-          <span
-            className="absolute bottom-1.5 whitespace-nowrap"
-            style={{ left: `${dayMid}%`, transform: `translateX(${dayMid > 66 ? "-90%" : dayMid < 34 ? "-10%" : "-50%"})` }}
-          >
-            Day {dayLow!.toFixed(2)}–{dayHigh!.toFixed(2)}
-          </span>
-          <span className="absolute bottom-0 -translate-x-1/2 leading-none text-amber-400/70" style={{ left: `${dayMid}%` }}>
-            ▾
-          </span>
-        </div>
-      )}
-      <div className={`relative ${hasDay ? "" : "mt-2"} h-4 rounded-[3px] bg-white/[0.08]`}>
-        {hasDay && (
-          <div className="absolute top-0 h-full rounded-[2px] bg-amber-400/45" style={{ left: `${dLow}%`, width: `${Math.max(2, dHigh - dLow)}%` }} />
-        )}
-        <div
-          className="absolute top-0 h-full w-[2px] rounded-full bg-white"
-          style={{ left: `${curPos}%`, transform: "translateX(-50%)", boxShadow: "0 0 0 1px rgba(0,0,0,0.5)" }}
-        />
-      </div>
-      <div className="mt-1.5 flex items-baseline justify-between text-[10px]">
-        <span className="text-[#8a8a8a]">52W Low <span className="tabular-nums text-white/85">{week52Low.toFixed(2)}</span></span>
-        <span className="text-[#8a8a8a]">52W High <span className="tabular-nums text-white/85">{week52High.toFixed(2)}</span></span>
-      </div>
-    </div>
-  );
-}
 
 function MobileSlot({ h, auto, children }: { h?: number; auto?: boolean; children: React.ReactNode }) {
   // `auto` → no fixed height; the wrapper grows to the (in-flow) card's content (used by the
@@ -297,7 +206,7 @@ export function MonacoHome() {
   const [awaitedAfterOnboard, setAwaitedAfterOnboard] = useState(false); // just finished onboarding → show the "first brief" countdown
   const [firstBriefReady, setFirstBriefReady] = useState<boolean | null>(null); // has THIS account's first brief been generated? (null=unknown)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
-  const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
+  const [dashTab, setDashTab] = useState<DashTab>("extra"); // phone-only: Dashboard sub-tab. Default = Hivemind ("extra"). Order: Hivemind · Chat · News · Overview (Prediction Markets hidden).
   // Native iOS shell renders its OWN glass bottom-nav + Dashboard slider. It sets this flag before our JS
   // runs; when present we yield our web nav/slider, pad for the floating native bars, and drive/report tab
   // state over a bridge. Absent (desktop / mobile-web) → everything below is unchanged. Read once via a
@@ -312,11 +221,16 @@ export function MonacoHome() {
       const q = new URLSearchParams(window.location.search);
       const v = q.get("view");
       if (v === "brief" || v === "dashboard" || v === "portfolio") setMobilePage(v);
+      const dashboard = q.get("dash");
+      const dashboardMap: Record<string, DashTab> = { overview: "overview", analyst: "extra", hivemind: "extra", news: "news", markets: "markets" };
+      if (dashboard && dashboardMap[dashboard]) setDashTab(dashboardMap[dashboard]);
       if (q.get("onboard") === "1") setOnboarding(true);
     } catch {}
   }, []);
   // Contract map between our internal Dashboard sub-tab ids and the native slider's strings.
-  const DASH_TO_NATIVE: Record<DashTab, "overview" | "analyst" | "news" | "markets"> = { overview: "overview", extra: "analyst", news: "news", markets: "markets" };
+  // New native dash contract (Prediction Markets dropped): Hivemind · Chat · News · Overview.
+  // The iOS shell must map these values to its reworked slider (see the handoff note).
+  const DASH_TO_NATIVE: Record<DashTab, "hivemind" | "news" | "overview" | "markets"> = { extra: "hivemind", news: "news", overview: "overview", markets: "markets" };
   // Inbound bridge: let the native bars drive our tab state (no reload). Defined only in native mode.
   useEffect(() => {
     if (!nativeChrome || typeof window === "undefined") return;
@@ -325,7 +239,7 @@ export function MonacoHome() {
       if (tab === "brief" || tab === "dashboard" || tab === "portfolio" || tab === "account") setMobilePage(tab);
     };
     w.__thesisSetDashTab = (sub) => {
-      const map: Record<string, DashTab> = { overview: "overview", analyst: "extra", news: "news", markets: "markets" };
+      const map: Record<string, DashTab> = { overview: "overview", analyst: "extra", hivemind: "extra", news: "news", markets: "markets" };
       if (map[sub]) setDashTab(map[sub]);
     };
     return () => { delete w.__thesisSetTab; delete w.__thesisSetDashTab; };
@@ -346,100 +260,9 @@ export function MonacoHome() {
     (window as ThesisWindow).webkit?.messageHandlers?.thesisChrome?.postMessage({ hidden: takeover });
   }, [nativeChrome, status, signupDismissed, onboarding]);
 
-  // Live quotes for the Analyst Sentiment cards — SAME pipeline as the holdings ledger (/api/quote +
-  // the shared price cache). Seeded from cache and fetched once when that tab is open.
-  type SentimentQuote = { price: number | null; percent: number | null; dayLow?: number | null; dayHigh?: number | null };
-  const [sentimentQuotes, setSentimentQuotes] = useState<Record<string, SentimentQuote>>({});
-  const holdingSymbols = useMemo(
-    () => (ledger?.holdings ?? []).map((h) => h.ticker.trim().toUpperCase()).filter(Boolean).join(","),
-    [ledger],
-  );
-  useEffect(() => {
-    if (dashTab !== "extra" || !holdingSymbols) return;
-    const active = holdingSymbols.split(",");
-    const cached = readQuoteCache(active);
-    setSentimentQuotes((prev) => {
-      const next = { ...prev };
-      for (const [s, c] of Object.entries(cached)) if (next[s] == null) next[s] = { price: c.price, percent: c.percent };
-      return next;
-    });
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/quote?symbols=${encodeURIComponent(holdingSymbols)}`);
-        const j = await r.json();
-        const q = (j.quotes || {}) as Record<string, SentimentQuote>;
-        if (cancelled) return;
-        setSentimentQuotes((prev) => ({ ...prev, ...q }));
-        writeQuoteCache(q);
-      } catch {
-        /* keep whatever prices we already have */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dashTab, holdingSymbols]);
-
-  // Average analyst recommendation per holding (Finnhub via /api/recommendation) — server-cached, so
-  // this is cheap on repeat tab visits. Uncovered names (e.g. crypto) are simply absent from the map.
-  type RecCounts = { strongBuy: number; buy: number; hold: number; sell: number; strongSell: number };
-  const [recommendations, setRecommendations] = useState<Record<string, { label: string; score: number; analysts: number; period: string; counts: RecCounts }>>({});
-  // Which Analyst Sentiment cards have their ratings breakdown expanded.
-  const [openRatings, setOpenRatings] = useState<Set<string>>(new Set());
-  const toggleRatings = (sym: string) =>
-    setOpenRatings((prev) => {
-      const n = new Set(prev);
-      if (n.has(sym)) n.delete(sym);
-      else n.add(sym);
-      return n;
-    });
-  useEffect(() => {
-    if (dashTab !== "extra" || !holdingSymbols) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/recommendation?symbols=${encodeURIComponent(holdingSymbols)}`);
-        const j = await r.json();
-        if (!cancelled) setRecommendations(j.recommendations || {});
-      } catch {
-        /* keep whatever we have */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dashTab, holdingSymbols]);
-
-  // 52-week range per holding (Finnhub via /api/metrics) — feeds the 52-Week Range slider.
-  const [metrics, setMetrics] = useState<Record<string, { week52High: number | null; week52Low: number | null }>>({});
-  useEffect(() => {
-    if (dashTab !== "extra" || !holdingSymbols) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/metrics?symbols=${encodeURIComponent(holdingSymbols)}`);
-        const j = await r.json();
-        if (!cancelled) setMetrics(j.metrics || {});
-      } catch {
-        /* keep whatever we have */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dashTab, holdingSymbols]);
-
-  // Per-stock analyst-sentiment brief (agent-written, from Turso via /api/analyst-brief).
-  const [analystBriefs, setAnalystBriefs] = useState<Record<string, string>>({});
-  useEffect(() => {
-    if (dashTab !== "extra" || !holdingSymbols) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`/api/analyst-brief?symbols=${encodeURIComponent(holdingSymbols)}`);
-        const j = await r.json();
-        if (!cancelled) setAnalystBriefs(j.briefs || {});
-      } catch {
-        /* keep whatever we have */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [dashTab, holdingSymbols]);
+  // (The Hivemind tab's per-asset data — quotes, recommendations, 52-wk metrics, analyst briefs,
+  // monitor, reddit/youtube, markets, news — is now fetched inside <Hivemind/> (self-contained),
+  // so the old per-tab fetch effects that lived here were removed with the inline card rework.)
   const [navCondensed, setNavCondensed] = useState(false); // phone: nav shrinks on scroll-down
   const [priceRefresh, setPriceRefresh] = useState(0); // bumped by pull-to-refresh to re-fetch live prices
   const priceRefreshResolve = useRef<(() => void) | null>(null); // resolves when the triggered fetch lands
@@ -1366,94 +1189,12 @@ export function MonacoHome() {
                 </>
               )}
 
-              {/* Analyst Sentiment — one bordered card per holding (same sunset-glow border as the
-                  portfolio's "Your Holdings" box). Card body is a shell for the sentiment content. */}
+              {/* Hivemind — the market-pulse page: portfolio + per-asset cross-signal reads over
+                  analyst research · Reddit · YouTube · prediction markets · news · price. Self-contained
+                  (owns all its own fetching + synthesis in Hivemind.tsx / lib/hivemind.ts). */}
               {dashTab === "extra" && (
                 <>
-                  <MarketHoursPill />
-                  {ledger.holdings.map((h, i) => {
-                    const sym = (h.ticker || "").trim().toUpperCase();
-                    const q = sentimentQuotes[sym];
-                    const up = (q?.percent ?? 0) >= 0;
-                    const rec = recommendations[sym];
-                    const isOpen = openRatings.has(sym);
-                    const maxCount = rec?.counts ? Math.max(1, rec.counts.strongBuy, rec.counts.buy, rec.counts.hold, rec.counts.sell, rec.counts.strongSell) : 1;
-                    const met = metrics[sym];
-                    const cur = q?.price ?? null;
-                    const dayReady = q?.dayLow != null && q?.dayHigh != null && cur != null && q.dayHigh > q.dayLow;
-                    const wk52Ready = met?.week52Low != null && met?.week52High != null && cur != null && met.week52High > met.week52Low;
-                    return (
-                      <div
-                        key={`${h.ticker}-${i}`}
-                        onClick={rec ? () => toggleRatings(sym) : undefined}
-                        className={`relative w-full overflow-hidden rounded-2xl border border-white/[0.09] px-4 py-4 ${rec ? "cursor-pointer" : ""}`}
-                        style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)" }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="text-[16px] font-medium leading-tight text-white">{h.ticker || "New holding"}</p>
-                            {h.name && <p className="mt-0.5 truncate text-[13px] leading-tight text-[#8a8a8a]">{h.name}</p>}
-                          </div>
-                          <div className="shrink-0 text-right">
-                            <p className="text-[16px] leading-tight tabular-nums text-white">{fmtPrice(q?.price ?? null)}</p>
-                            <p className={`mt-0.5 text-[13px] leading-tight tabular-nums ${q?.percent == null ? "text-[#8a8a8a]" : up ? "text-emerald-400" : "text-rose-400"}`}>
-                              {fmtPct(q?.percent ?? null)}
-                            </p>
-                          </div>
-                        </div>
-                        {analystBriefs[sym] && (
-                          <p className="mt-2.5 text-[15px] leading-snug text-white/75">{analystBriefs[sym]}</p>
-                        )}
-                        {rec && (
-                          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-                            <span className="text-[13px] text-[#8a8a8a]">Average Analyst Recommendation:</span>
-                            <span
-                              style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }}
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[13px] font-medium ring-1 ring-white/15 backdrop-blur-md ${recColor(rec.label)}`}
-                            >
-                              {rec.label}
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Current-month analyst ratings breakdown (Finnhub-native buckets) — tap to reveal. */}
-                        {rec?.counts && isOpen && (
-                          <div className="mt-3.5 flex flex-col gap-1 border-t border-white/[0.08] pt-3.5">
-                            {RATING_ROWS.map(([label, keyName]) => {
-                              const c = rec.counts[keyName];
-                              return (
-                                <div key={keyName} className="flex items-center gap-2.5">
-                                  <span className="w-[76px] shrink-0 text-[11px] text-white/70">{label}</span>
-                                  <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-[3px] bg-white/[0.05]">
-                                    <div
-                                      className="h-full rounded-[3px]"
-                                      style={{ width: `${(c / maxCount) * 100}%`, background: "#b7bac2" }}
-                                    />
-                                  </div>
-                                  <span className="w-6 shrink-0 text-right text-[11px] tabular-nums text-white/70">{c}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Combined 52-week + day range slider (Finnhub-sourced). Falls back to a day-only
-                            slider when the 52-week range isn't available. */}
-                        {isOpen && (dayReady || wk52Ready) && (
-                          <div className="mt-3.5 border-t border-white/[0.08] pt-3.5">
-                            {wk52Ready ? (
-                              <CombinedRangeSlider week52Low={met!.week52Low!} week52High={met!.week52High!} cur={cur!} dayLow={q?.dayLow} dayHigh={q?.dayHigh} />
-                            ) : (
-                              <RangeSlider label="Day Range" low={q!.dayLow!} cur={cur!} high={q!.dayHigh!} />
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  {ledger.holdings.length === 0 && (
-                    <p className="px-1 pt-6 text-center text-[13px] text-[#8a8a8a]">Add holdings on the Portfolio tab to see analyst sentiment.</p>
-                  )}
+                  <Hivemind holdings={ledger.holdings} user={monitorUser} />
                   <MobileDisclaimer />
                 </>
               )}

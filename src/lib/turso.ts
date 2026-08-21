@@ -40,6 +40,17 @@ async function query(sql: string, args: Arg[] = []): Promise<Record<string, stri
   return result.rows.map((row) => Object.fromEntries(row.map((cell, i) => [names[i], cell?.value ?? null])));
 }
 
+// Public read-only query: runs a single SELECT and returns column order + rows. Guards that the SQL is a
+// lone SELECT so exporting this can never become a write vector (callers should still validate/parametrize).
+// Used by the chat `run_sql` tool's read-only escape hatch. Every cell comes back as a string (or null).
+export async function readOnlyQuery(sql: string): Promise<{ columns: string[]; rows: Record<string, string | null>[] }> {
+  if (!/^\s*select\b/i.test(sql)) throw new Error("readOnlyQuery accepts a single SELECT only");
+  const [result] = await pipeline([{ type: "execute", stmt: { sql, args: [] } }]);
+  const columns = result.cols.map((c) => c.name);
+  const rows = result.rows.map((row) => Object.fromEntries(row.map((cell, i) => [columns[i], cell?.value ?? null])));
+  return { columns, rows };
+}
+
 export interface MonitorResult {
   ticker: string;
   name: string;
@@ -246,6 +257,91 @@ export async function setMarketStats(rows: Array<{ ticker: string; beta: number;
       },
     })),
   );
+}
+
+// ── Reddit social-listening snapshots ──────────────────────────────────────────────────────────
+// Compact, derived records only. Raw Reddit posts/comments stay in the research collector and are
+// never copied into the app database. The ingestion route replaces each ticker atomically by key.
+export async function getRedditSocialRows(tickers: string[]): Promise<string[]> {
+  const uniq = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  try {
+    const where = uniq.length ? ` WHERE ticker IN (${uniq.map(() => "?").join(",")})` : "";
+    const rows = await query(`SELECT payload FROM reddit_social_snapshots${where} ORDER BY mentions DESC`, uniq);
+    return rows.map((r) => r.payload).filter((v): v is string => Boolean(v));
+  } catch {
+    return []; // table does not exist until the first successful publication
+  }
+}
+
+export interface NewsOverviewRow {
+  summary: string | null;
+  lean: string | null;
+}
+// The analyst agent's per-ticker news overview + directional lean (written by the news agent).
+export async function getNewsOverviews(tickers: string[]): Promise<Record<string, NewsOverviewRow>> {
+  const uniq = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  if (!uniq.length) return {};
+  try {
+    const rows = await query(`SELECT ticker, summary, lean FROM news_overviews WHERE ticker IN (${uniq.map(() => "?").join(",")})`, uniq);
+    const out: Record<string, NewsOverviewRow> = {};
+    for (const r of rows) if (r.ticker) out[r.ticker] = { summary: r.summary, lean: r.lean };
+    return out;
+  } catch {
+    return {}; // table does not exist until the news agent's first publication
+  }
+}
+
+export async function putRedditSocialRows(rows: Array<{ ticker: string; mentions: number; generatedAt: string; payload: string }>): Promise<void> {
+  if (!rows.length) return;
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: "CREATE TABLE IF NOT EXISTS reddit_social_snapshots (ticker TEXT PRIMARY KEY, mentions INTEGER NOT NULL, generated_at TEXT NOT NULL, payload TEXT NOT NULL)",
+        args: [],
+      },
+    },
+    ...rows.map((row) => ({
+      type: "execute" as const,
+      stmt: {
+        sql: `INSERT INTO reddit_social_snapshots (ticker, mentions, generated_at, payload) VALUES (?,?,?,?)
+              ON CONFLICT(ticker) DO UPDATE SET mentions=excluded.mentions, generated_at=excluded.generated_at, payload=excluded.payload`,
+        args: [typed(row.ticker), typed(row.mentions), typed(row.generatedAt), typed(row.payload)],
+      },
+    })),
+  ]);
+}
+
+export async function getYouTubeSocialRows(tickers: string[]): Promise<string[]> {
+  const uniq = [...new Set(tickers.map((ticker) => ticker.trim().toUpperCase()).filter(Boolean))];
+  try {
+    const where = uniq.length ? ` WHERE ticker IN (${uniq.map(() => "?").join(",")})` : "";
+    const rows = await query(`SELECT payload FROM youtube_social_snapshots${where} ORDER BY generated_at DESC`, uniq);
+    return rows.map((row) => row.payload).filter((value): value is string => Boolean(value));
+  } catch {
+    return [];
+  }
+}
+
+export async function putYouTubeSocialRows(rows: Array<{ ticker: string; generatedAt: string; payload: string }>): Promise<void> {
+  if (!rows.length) return;
+  await pipeline([
+    {
+      type: "execute",
+      stmt: {
+        sql: "CREATE TABLE IF NOT EXISTS youtube_social_snapshots (ticker TEXT PRIMARY KEY, generated_at TEXT NOT NULL, payload TEXT NOT NULL)",
+        args: [],
+      },
+    },
+    ...rows.map((row) => ({
+      type: "execute" as const,
+      stmt: {
+        sql: `INSERT INTO youtube_social_snapshots (ticker, generated_at, payload) VALUES (?,?,?)
+              ON CONFLICT(ticker) DO UPDATE SET generated_at=excluded.generated_at,payload=excluded.payload`,
+        args: [typed(row.ticker), typed(row.generatedAt), typed(row.payload)],
+      },
+    })),
+  ]);
 }
 
 // Record a sign-in: upsert the user's identity + tenure. first_seen is set once (on the first-ever
