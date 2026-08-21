@@ -14,12 +14,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
   BarChart3,
   ChevronDown,
   ExternalLink,
-  Flame,
   LineChart,
   MessageCircle,
   Newspaper,
@@ -38,7 +35,8 @@ import {
   assetAction,
   assetConviction,
   assetNotability,
-  composePortfolioBrief,
+  marketsOverview,
+  newsOverview,
   signalLean,
   synthesizeAsset,
   youtubeLean,
@@ -55,6 +53,10 @@ import {
 type PointAction = AssetAction["label"];
 type BriefPoint = { short: string; detail: string; facts?: BriefFact[]; action?: PointAction };
 type OverviewData = { headline: string | null; points: BriefPoint[] | null };
+
+// House style: the tilde never appears in any overview text (write "about"/"around"). Applied at the
+// render sites so it holds regardless of which agent or source produced the string.
+const noTilde = (s?: string | null): string => (s ? s.replace(/~\s*/g, "about ") : "");
 
 // The liquid-glass sheen shared by every dashboard card (matches the Analyst Sentiment cards).
 const SHEEN = "inset 0 1px 0 rgba(255,255,255,0.2), 0 0 0 1px rgba(255,255,255,0.05), 0 12px 40px -18px rgba(0,0,0,0.5)";
@@ -93,14 +95,18 @@ interface Bundle {
   reddit: RedditSocialSnapshot[];
   redditStale: boolean;
   youtube: Record<string, YouTubeSocialVideo[]>;
+  youtubeLeans: Record<string, string>; // agent's per-ticker youtube lean
+  youtubeSummaries: Record<string, string>; // agent's per-ticker youtube overview
   news: Record<string, NewsArticle[]>;
+  newsOverviews: Record<string, string>; // news agent's per-ticker overview
+  newsLeans: Record<string, string>; // news agent's per-ticker lean
   markets: Record<string, MarketsAsset>;
   generatedAt: string | null;
 }
 
 const EMPTY_BUNDLE: Bundle = {
   quotes: {}, recs: {}, targets: {}, metrics: {}, briefs: {}, monitor: {}, memo: null,
-  reddit: [], redditStale: false, youtube: {}, news: {}, markets: {}, generatedAt: null,
+  reddit: [], redditStale: false, youtube: {}, youtubeLeans: {}, youtubeSummaries: {}, news: {}, newsOverviews: {}, newsLeans: {}, markets: {}, generatedAt: null,
 };
 
 // ---------------------------------------------------------------------------------------
@@ -133,26 +139,6 @@ function GlassCard({ children, className = "", style, onClick }: { children: Rea
       {children}
     </div>
   );
-}
-
-function PulseChip({ label, color }: { label: string; color: string }) {
-  return (
-    <span style={{ boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)" }} className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[12px] font-medium ring-1 ring-white/15 backdrop-blur-md ${color}`}>
-      {label}
-    </span>
-  );
-}
-
-// v1: the implied move — the single most valuable bit, shown as plain coloured text (no pill).
-const ACTION_STYLE: Record<PointAction, string> = {
-  Add: "text-emerald-300",
-  Trim: "text-rose-300",
-  Fade: "text-amber-300",
-  Watch: "text-sky-300",
-  Hold: "text-white/55",
-};
-function ActionChip({ action, size = "sm" }: { action: PointAction; size?: "sm" | "md" }) {
-  return <span className={`shrink-0 font-semibold uppercase tracking-[0.08em] ${size === "md" ? "text-[12px]" : "text-[11px]"} ${ACTION_STYLE[action]}`}>{action}</span>;
 }
 
 // The directional read for a single signal family (Strong Buy … Strong Sell), inferred from its raw data.
@@ -217,10 +203,10 @@ function PulseOrb({ tint, speed, active }: { tint: string; speed: number; active
 
 const HIVEMIND_INFO = "Hivemind is a reflection of the world's thinking. It ingests petabytes of qualitative and quantitative data every second, across mainstream and niche sources and tracks the pulse of the market in real time.";
 
-function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregatePortfolioPulse>; headline: string; points: BriefPoint[] }) {
+function Hero({ pulse, points }: { pulse: ReturnType<typeof aggregatePortfolioPulse>; points: BriefPoint[] | null }) {
   const [showInfo, setShowInfo] = useState(false);
-  const [openPoint, setOpenPoint] = useState<number | null>(null); // level 2: which takeaway's detail is open
-  const [openFacts, setOpenFacts] = useState<number | null>(null); // level 3: which takeaway's facts are open
+  const [openPoint, setOpenPoint] = useState<number | null>(null); // level 2: which notification's body is open
+  const [openFacts, setOpenFacts] = useState<number | null>(null); // level 3: which notification's facts are open
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
     setNow(new Date());
@@ -257,27 +243,30 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
           {HIVEMIND_INFO}
         </div>
       )}
-      <p className="mt-3.5 text-[16px] font-medium leading-snug text-white">{headline}</p>
+      {/* Notifications live inside this card: each a tap-to-expand takeaway with the facts behind it.
+          Until the real (LLM-written) read lands, pulse skeleton rows — never deterministic fallback text. */}
       <ul className="mt-3.5 space-y-1">
-        {points.map((pt, i) => {
+        {points === null ? (
+          ["86%", "72%", "90%", "64%"].map((w, i) => (
+            <li key={i} className="py-1.5">
+              <div className="h-[13px] animate-pulse rounded bg-white/[0.06]" style={{ width: w, animationDelay: `${i * 120}ms` }} />
+            </li>
+          ))
+        ) : (
+          points.map((pt, i) => {
           const showDetail = openPoint === i;
           const showFacts = openFacts === i;
           const hasFacts = !!pt.facts && pt.facts.length > 0;
           return (
             <li key={i}>
-              {/* Level 1 — the takeaway. Tap to reveal the expanded takeaway. */}
               <button
                 type="button"
                 onClick={() => { setOpenPoint((v) => (v === i ? null : i)); setOpenFacts(null); }}
                 aria-expanded={showDetail}
-                className="flex w-full items-start gap-2.5 py-1 text-left"
+                className="block w-full py-1 text-left"
               >
-                <span className="flex-1 text-[13.5px] leading-snug text-white/85">{pt.short}</span>
-                {pt.action === "Trim" && <ActionChip action={pt.action} />}
-                <ChevronDown className={`mt-[3px] h-3.5 w-3.5 shrink-0 text-white/35 transition-transform ${showDetail ? "rotate-180" : ""}`} />
+                <span className="block text-[14.58px] leading-snug text-white/85">{noTilde(pt.short)}</span>
               </button>
-
-              {/* Level 2 — the expanded takeaway. Tap to reveal the exact facts behind it. */}
               {showDetail && (
                 <div className="mb-1.5 mr-1 pt-0.5">
                   <button
@@ -286,11 +275,9 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
                     aria-expanded={showFacts}
                     className={`flex w-full items-start gap-2 text-left ${hasFacts ? "" : "cursor-default"}`}
                   >
-                    <span className="flex-1 text-[12.5px] leading-relaxed text-white/65">{pt.detail}</span>
+                    <span className="flex-1 text-[12.5px] leading-relaxed text-white/65">{noTilde(pt.detail)}</span>
                     {hasFacts && <ChevronDown className={`mt-[3px] h-3 w-3 shrink-0 text-white/30 transition-transform ${showFacts ? "rotate-180" : ""}`} />}
                   </button>
-
-                  {/* Level 3 — the exact facts, with where each one comes from. */}
                   {showFacts && hasFacts && (
                     <div className="mt-2 space-y-2 rounded-lg bg-white/[0.03] px-3 py-2.5">
                       <p className="text-[10px] uppercase tracking-[0.12em] text-[#737373]">The facts</p>
@@ -310,7 +297,8 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
               )}
             </li>
           );
-        })}
+          })
+        )}
       </ul>
     </GlassCard>
   );
@@ -319,8 +307,10 @@ function Hero({ pulse, headline, points }: { pulse: ReturnType<typeof aggregateP
 // ---------------------------------------------------------------------------------------
 // Signal breakdown blocks
 // ---------------------------------------------------------------------------------------
-function recColor(label: string): string {
-  return label === "Strong Buy" || label === "Buy" ? "text-emerald-300" : label === "Hold" ? "text-amber-300" : "text-rose-300";
+// Map a Wall-Street consensus label to the shared 5-point signal vocabulary (Hold → Neutral), so the
+// consensus tag renders identically to the other signal LeanTags.
+function recToLean(label: string): SignalLean {
+  return label === "Strong Buy" ? "Strong Buy" : label === "Buy" ? "Buy" : label === "Sell" ? "Sell" : label === "Strong Sell" ? "Strong Sell" : "Neutral";
 }
 const RATING_ROWS: Array<[string, keyof RecCounts]> = [["Strong Buy", "strongBuy"], ["Buy", "buy"], ["Hold", "hold"], ["Sell", "sell"], ["Strong Sell", "strongSell"]];
 
@@ -377,7 +367,7 @@ function AnalystBlock({ monitor, rec, brief, target, price }: { monitor?: Monito
       {rationale && (
         <div>
           <p className="text-[11px] uppercase tracking-wide text-[#737373]">Thesis Research</p>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{rationale}</p>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-white/70">{noTilde(rationale)}</p>
         </div>
       )}
       {hasTarget && (
@@ -397,7 +387,7 @@ function AnalystBlock({ monitor, rec, brief, target, price }: { monitor?: Monito
       )}
       {rec && (
         <div>
-          <div className="mb-2 flex items-center gap-1.5 text-[12px] text-[#8a8a8a]">Consensus <span className={`font-medium ${recColor(rec.label)}`}>{rec.label}</span>{rec.analysts ? <span className="text-[#737373]">· {rec.analysts} analysts</span> : null}</div>
+          <div className="mb-2 flex items-center gap-1.5 text-[12px] text-[#8a8a8a]">Consensus <LeanTag lean={recToLean(rec.label)} />{rec.analysts ? <span className="text-[#737373]">· {rec.analysts} analysts</span> : null}</div>
           <div className="flex flex-col gap-1">
             {RATING_ROWS.map(([label, key]) => (
               <div key={key} className="flex items-center gap-2.5">
@@ -422,7 +412,7 @@ function RedditBlock({ snap }: { snap: RedditSocialSnapshot }) {
         <Stat label="voices" value={compact.format(snap.uniqueAuthors)} icon={<Users className="h-3 w-3 text-white/45" />} />
         <Stat label="threads" value={compact.format(snap.uniqueThreads)} icon={<MessageCircle className="h-3 w-3 text-white/45" />} />
       </div>
-      {snap.summary && <p className="text-[13px] leading-relaxed text-white/70">{snap.summary}</p>}
+      {snap.summary && <p className="text-[13px] leading-relaxed text-white/70">{noTilde(snap.summary)}</p>}
       {snap.topSources.length > 0 && (
         <div className="space-y-2">
           <p className="text-[10px] uppercase tracking-[0.12em] text-[#737373]">Open discussions</p>
@@ -447,26 +437,26 @@ function Stat({ label, value, icon }: { label: string; value: string; icon?: Rea
   );
 }
 
-function YouTubeBlock({ videos }: { videos: YouTubeSocialVideo[] }) {
+// One short overview of the YouTube signal for the asset, then the relevant videos listed (no
+// per-video summaries — the agent only produces the ticker-level overview).
+function YouTubeBlock({ videos, overview }: { videos: YouTubeSocialVideo[]; overview?: string | null }) {
   return (
     <div className="space-y-2.5">
-      {videos.map((v) => (
-        <a key={v.videoId} href={v.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg bg-white/[0.035]">
-          <div className="flex gap-3 p-2.5">
-            <div className="relative h-[60px] w-[100px] shrink-0 overflow-hidden rounded-md bg-white/[0.05]">
-              {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-full w-full object-cover" /> : <Video className="absolute inset-0 m-auto h-5 w-5 text-white/25" />}
+      {overview && <p className="text-[13px] leading-relaxed text-white/70">{noTilde(overview)}</p>}
+      <div className="space-y-1.5">
+        {videos.map((v) => (
+          <a key={v.videoId} href={v.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-lg bg-white/[0.035] p-2 transition-colors hover:bg-white/[0.06]">
+            <div className="relative h-[44px] w-[74px] shrink-0 overflow-hidden rounded-md bg-white/[0.05]">
+              {v.thumbnailUrl ? <img src={v.thumbnailUrl} alt="" className="h-full w-full object-cover" /> : <Video className="absolute inset-0 m-auto h-4 w-4 text-white/25" />}
             </div>
             <div className="min-w-0 flex-1">
               <p className="line-clamp-2 text-[12px] font-medium leading-snug text-white/85">{v.title}</p>
-              <p className="mt-1 truncate text-[10px] text-[#8a8a8a]">{v.channel}</p>
+              <p className="mt-0.5 truncate text-[10px] text-[#8a8a8a]">{v.channel}</p>
             </div>
-            <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/30" />
-          </div>
-          {(v.videoSummary || v.transcriptExcerpt) && (
-            <p className="border-t border-white/[0.06] px-2.5 py-2 text-[11px] leading-relaxed text-white/55">{v.videoSummary || v.transcriptExcerpt}</p>
-          )}
-        </a>
-      ))}
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/30" />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
@@ -474,6 +464,7 @@ function YouTubeBlock({ videos }: { videos: YouTubeSocialVideo[] }) {
 function MarketsBlock({ asset }: { asset: MarketsAsset }) {
   return (
     <div className="space-y-2.5">
+      <p className="text-[13px] leading-relaxed text-white/70">{noTilde(marketsOverview(flattenMarkets(asset)))}</p>
       {asset.events.slice(0, 5).map((ev) => {
         const rows = ev.single || !ev.outcomes.length
           ? [{ q: ev.title, yes: ev.yes }]
@@ -501,9 +492,12 @@ function MarketsBlock({ asset }: { asset: MarketsAsset }) {
   );
 }
 
-function NewsBlock({ articles }: { articles: NewsArticle[] }) {
+function NewsBlock({ articles, overview }: { articles: NewsArticle[]; overview?: string }) {
+  // Prefer the news agent's overview; fall back to the deterministic headline read when absent.
+  const read = overview || newsOverview(articles.map((a) => a.headline), articles.length);
   return (
     <div className="space-y-2">
+      <p className="text-[13px] leading-relaxed text-white/70">{noTilde(read)}</p>
       {articles.slice(0, 6).map((a) => (
         <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="flex items-start justify-between gap-3 rounded-lg bg-white/[0.035] px-3 py-2">
           <span className="min-w-0">
@@ -560,9 +554,9 @@ function CoverageChip({ icon, on, label }: { icon: React.ReactNode; on: boolean;
 // ---------------------------------------------------------------------------------------
 // Per-holding card
 // ---------------------------------------------------------------------------------------
-function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, reddit, videos, markets, news, action, conviction, defaultOpen }: {
-  pulse: AssetPulse; name?: string | null; quote?: Quote; monitor?: MonitorResult; rec?: Rec; target?: PriceTarget; metric?: Metric;
-  brief?: string; reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[]; markets?: MarketsAsset; news?: NewsArticle[];
+function HoldingCard({ pulse, overview, name, quote, monitor, rec, target, metric, brief, reddit, videos, ytLeanAgent, ytOverview, markets, news, newsSummary, action, conviction, defaultOpen }: {
+  pulse: AssetPulse; overview?: string | null; name?: string | null; quote?: Quote; monitor?: MonitorResult; rec?: Rec; target?: PriceTarget; metric?: Metric;
+  brief?: string; reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[]; ytLeanAgent?: string; ytOverview?: string; markets?: MarketsAsset; news?: NewsArticle[]; newsSummary?: string;
   action: AssetAction; conviction: AssetConviction; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
@@ -580,7 +574,7 @@ function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, 
   const redditLean = signalLean(pulse, "reddit");
   const marketsLean = signalLean(pulse, "markets");
   const newsLean = signalLean(pulse, "news");
-  const ytLean = youtubeLean(videos ?? []);
+  const ytLean = youtubeLean(videos ?? [], ytLeanAgent);
 
   return (
     <GlassCard className="px-4 py-4">
@@ -600,14 +594,21 @@ function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, 
         </div>
       </div>
 
-      {/* v1: conviction + a one-line read of where the signals lean */}
+      {/* v1: conviction — how many independent, reliable signals agree */}
       <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
         <ConvictionBadge c={conviction} />
-        {action.note && <><span className="text-white/20">·</span><span className="text-[11px] text-white/50">{action.note}</span></>}
       </div>
 
-      {/* the cross-signal overview — the "interpretation across all signals" */}
-      <p className="mt-2.5 text-[14px] leading-relaxed text-white/80">{pulse.overview}</p>
+      {/* the cross-signal overview — LLM-written from the real signals; pulse skeleton lines until it lands */}
+      {overview == null ? (
+        <div className="mt-2.5 space-y-2" aria-hidden>
+          {["100%", "94%", "68%"].map((w, i) => (
+            <div key={i} className="h-[13px] animate-pulse rounded bg-white/[0.06]" style={{ width: w, animationDelay: `${i * 120}ms` }} />
+          ))}
+        </div>
+      ) : (
+        <p className="mt-2.5 text-[14px] leading-relaxed text-white/80">{noTilde(overview)}</p>
+      )}
 
       {/* coverage rail + expand toggle */}
       <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="mt-3 flex w-full items-center gap-1.5">
@@ -632,7 +633,7 @@ function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, 
           )}
           {hasVideos && (
             <SignalSection icon={<Video className="h-3.5 w-3.5" />} title="YouTube" meta={ytLean && <LeanTag lean={ytLean} />}>
-              <YouTubeBlock videos={videos!} />
+              <YouTubeBlock videos={videos!} overview={ytOverview} />
             </SignalSection>
           )}
           {hasMarkets && (
@@ -642,7 +643,7 @@ function HoldingCard({ pulse, name, quote, monitor, rec, target, metric, brief, 
           )}
           {hasNews && (
             <SignalSection icon={<Newspaper className="h-3.5 w-3.5" />} title="News" meta={newsLean && <LeanTag lean={newsLean} />}>
-              <NewsBlock articles={news!} />
+              <NewsBlock articles={news!} overview={newsSummary} />
             </SignalSection>
           )}
           <SignalSection icon={<LineChart className="h-3.5 w-3.5" />} title="Price">
@@ -785,46 +786,6 @@ function LiveNewsCard() {
   );
 }
 
-// ---------------------------------------------------------------------------------------
-// Opportunity card (non-portfolio ticker, lighter — social-driven)
-// ---------------------------------------------------------------------------------------
-function OpportunityCard({ pulse, reddit, videos }: { pulse: AssetPulse; reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <GlassCard className="px-4 py-3.5">
-      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="w-full text-left">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <p className="text-[15px] font-medium text-white">{pulse.ticker}</p>
-            <PulseChip label={pulse.label} color={pulse.color} />
-          </div>
-          <div className="flex items-center gap-3 text-[11px] text-[#8a8a8a]">
-            {reddit && <span className="tabular-nums">{compact.format(reddit.mentions)} mentions</span>}
-            {videos && videos.length > 0 && <span className="flex items-center gap-1"><Video className="h-3 w-3" />{videos.length}</span>}
-            <ChevronDown className={`h-3.5 w-3.5 text-white/40 transition-transform ${open ? "rotate-180" : ""}`} />
-          </div>
-        </div>
-        <p className="mt-2 line-clamp-2 text-[13px] leading-relaxed text-white/65">{pulse.overview}</p>
-      </button>
-      {open && (
-        <div className="mt-3 space-y-2 border-t border-white/[0.08] pt-3">
-          {reddit && <RedditBlock snap={reddit} />}
-          {videos && videos.length > 0 && <YouTubeBlock videos={videos.slice(0, 3)} />}
-        </div>
-      )}
-    </GlassCard>
-  );
-}
-
-function SectionHeading({ children, hint }: { children: string; hint?: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3 px-1 pt-1">
-      <h3 className="text-[13px] font-medium uppercase tracking-[0.14em] text-white/55">{children}</h3>
-      {hint && <span className="text-[11px] text-[#737373]">{hint}</span>}
-    </div>
-  );
-}
-
 function LoadingSkeleton() {
   return (
     <>
@@ -863,16 +824,28 @@ async function fetchBundle(held: HeldLite[], user?: string): Promise<Bundle> {
     safeJSON<MonitorPayload>(`/api/monitor${user ? `?user=${encodeURIComponent(user)}` : ""}`),
     safeJSON<RedditSocialResponse>(`/api/social/reddit`), // unfiltered → held + opportunities
     safeJSON<YouTubeSocialResponse>(`/api/social/youtube`),
-    held.length ? safeJSON<{ articles: NewsArticle[] }>(`/api/news${newsQ}`, { timeoutMs: 16000 }) : Promise.resolve(null),
+    held.length ? safeJSON<{ articles: NewsArticle[]; overviews?: Record<string, { summary: string | null; lean: string | null }> }>(`/api/news${newsQ}`, { timeoutMs: 16000 }) : Promise.resolve(null),
     held.length ? safeJSON<MarketsPayload>(`/api/prediction/markets`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ holdings: held.map((h) => ({ ticker: h.ticker, name: h.name, weight: h.weight })) }), timeoutMs: 16000 }) : Promise.resolve(null),
   ]);
 
   const monitor: Record<string, MonitorResult> = {};
   for (const r of monitorR?.results || []) monitor[norm(r.ticker)] = r;
   const youtube: Record<string, YouTubeSocialVideo[]> = {};
-  for (const snap of youtubeR?.snapshots || []) if (snap.videos.length) youtube[norm(snap.ticker)] = snap.videos;
+  const youtubeLeans: Record<string, string> = {};
+  const youtubeSummaries: Record<string, string> = {};
+  for (const snap of youtubeR?.snapshots || []) {
+    if (snap.videos.length) youtube[norm(snap.ticker)] = snap.videos;
+    if (snap.lean) youtubeLeans[norm(snap.ticker)] = snap.lean;
+    if (snap.summary) youtubeSummaries[norm(snap.ticker)] = snap.summary;
+  }
   const news: Record<string, NewsArticle[]> = {};
   for (const a of newsR?.articles || []) (news[norm(a.ticker)] ||= []).push(a);
+  const newsOverviews: Record<string, string> = {};
+  const newsLeans: Record<string, string> = {};
+  for (const [t, o] of Object.entries(newsR?.overviews || {})) {
+    if (o?.summary) newsOverviews[norm(t)] = o.summary;
+    if (o?.lean) newsLeans[norm(t)] = o.lean;
+  }
   const markets: Record<string, MarketsAsset> = {};
   for (const a of marketsR?.assets || []) if (a.events.length) markets[norm(a.ticker)] = a;
 
@@ -887,7 +860,11 @@ async function fetchBundle(held: HeldLite[], user?: string): Promise<Bundle> {
     reddit: redditR?.snapshots || [],
     redditStale: !!redditR?.stale,
     youtube,
+    youtubeLeans,
+    youtubeSummaries,
     news,
+    newsOverviews,
+    newsLeans,
     markets,
     generatedAt: redditR?.generatedAt ?? null,
   };
@@ -967,37 +944,24 @@ async function fetchOverview(snapshot: object): Promise<OverviewData | null> {
   return headline || points ? { headline, points } : null;
 }
 
-// v1: "since you last checked" — diff this visit's per-ticker state against the last visit stored in
-// localStorage, surface only what MOVED (price, Reddit volume, research verdict, pulse), then re-save.
-type Delta = { ticker: string; dir: "up" | "down" | "flat"; mag: number; text: string };
-function computeDeltas(views: Array<{ holding: { ticker: string }; pulse: AssetPulse; signals: AssetSignals }>, key: string): Delta[] {
-  const cur: Record<string, { price: number | null; mentions: number | null; verdict: string | null; label: string }> = {};
-  for (const v of views) {
-    cur[v.holding.ticker] = { price: v.signals.price ?? null, mentions: v.signals.reddit?.mentions ?? null, verdict: v.signals.verdict ?? null, label: v.pulse.label };
-  }
-  let prev: typeof cur | null = null;
-  try { const raw = localStorage.getItem(key); if (raw) prev = JSON.parse(raw).state; } catch { /* first visit */ }
-  const out: Delta[] = [];
-  if (prev) {
-    for (const t of Object.keys(cur)) {
-      const p = prev[t]; const c = cur[t]; if (!p) continue;
-      if (c.price != null && p.price != null && p.price > 0) {
-        const chg = ((c.price - p.price) / p.price) * 100;
-        if (Math.abs(chg) >= 1.5) out.push({ ticker: t, dir: chg >= 0 ? "up" : "down", mag: Math.abs(chg), text: `${t} ${chg >= 0 ? "up" : "down"} ${Math.abs(chg).toFixed(1)}% since your last visit` });
-      }
-      if (c.mentions != null && p.mentions != null && p.mentions > 0) {
-        const chg = ((c.mentions - p.mentions) / p.mentions) * 100;
-        if (Math.abs(chg) >= 30) out.push({ ticker: t, dir: chg >= 0 ? "up" : "down", mag: Math.abs(chg) / 2.5, text: `${t} Reddit chatter ${chg >= 0 ? "up" : "down"} ${Math.abs(Math.round(chg))}%` });
-      }
-      if (c.verdict && p.verdict && c.verdict !== p.verdict) out.push({ ticker: t, dir: "flat", mag: 45, text: `${t} research moved ${p.verdict.replace(/_/g, " ")} to ${c.verdict.replace(/_/g, " ")}` });
-      else if (c.label !== p.label) out.push({ ticker: t, dir: "flat", mag: 22, text: `${t} pulse shifted ${p.label} to ${c.label}` });
-    }
-  }
-  out.sort((a, b) => b.mag - a.mag);
-  try { localStorage.setItem(key, JSON.stringify({ state: cur, at: Date.now() })); } catch { /* ignore */ }
-  return out.slice(0, 5);
+// Per-asset LLM overview (one batched call → { ticker: overview }), cached + de-duped by the same
+// snapshot fingerprint. Returns null on any failure so each card keeps its skeleton pulsing.
+let assetOverviewCache: { key: string; data: Record<string, string> } | null = null;
+let assetOverviewInFlight: { key: string; promise: Promise<Record<string, string> | null> } | null = null;
+
+async function fetchAssetOverviews(holdings: object[]): Promise<Record<string, string> | null> {
+  const r = await safeJSON<{ overviews?: Record<string, string> }>("/api/hivemind/asset-overview", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ holdings }),
+    timeoutMs: 55000, // the opus fallback (used while the Dartmouth gateway is over budget) can take ~20-30s
+  });
+  if (!r || !r.overviews || typeof r.overviews !== "object" || !Object.keys(r.overviews).length) return null;
+  return r.overviews;
 }
 
+// v1: "since you last checked" — diff this visit's per-ticker state against the last visit stored in
+// localStorage, surface only what MOVED (price, Reddit volume, research verdict, pulse), then re-save.
 export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string; name?: string; weight?: number | null }>; user?: string }) {
   const held = useMemo(() => {
     const seen = new Set<string>();
@@ -1089,6 +1053,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
       newsCount: newsArr?.length ?? 0,
       newsHeadlines: (newsArr || []).map((a) => a.headline),
       newsItems: (newsArr || []).map((a) => ({ headline: a.headline, url: a.url })),
+      newsLean: bundle.newsLeans[h.ticker],
     };
     return { holding: h, pulse: synthesizeAsset(signals), signals };
   }), [held, bundle, redditByTicker]);
@@ -1117,22 +1082,9 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   const [signalOnly, setSignalOnly] = useState(false);
   const [highConviction, setHighConviction] = useState(false);
 
-  // v1: "since you last checked" delta feed (computed once when data is first ready).
-  const [deltas, setDeltas] = useState<Delta[]>([]);
-  const didDelta = useRef(false);
-  useEffect(() => {
-    if (didDelta.current || loading || !holdingViews.some((v) => v.pulse.signalCount > 0)) return;
-    didDelta.current = true;
-    setDeltas(computeDeltas(holdingViews, `thesis.hivemind.state.${user ?? "guest"}`));
-  }, [holdingViews, loading, user]);
 
-  // The top-of-page read: a short headline + a few terse, tappable points. Two tiers: a deterministic
-  // brief shown instantly, then the LLM-written version (headline + points organized by what matters
-  // most) swapped in when it lands.
-  const fallback = useMemo(
-    () => composePortfolioBrief(holdingPulses.map((p) => ({ pulse: p.pulse, signals: p.signals })), portfolioPulse),
-    [holdingPulses, portfolioPulse],
-  );
+  // The top-of-page read: a few terse, tappable points, written by the LLM from the real signal
+  // snapshot. Until that lands the Hero pulses skeleton rows — we never show deterministic fallback text.
   const snapshot = useMemo(() => buildSnapshot(portfolioPulse, holdingPulses), [portfolioPulse, holdingPulses]);
   const snapshotKey = useMemo(() => JSON.stringify(snapshot), [snapshot]);
   const [llm, setLlm] = useState<OverviewData | null>(() => (overviewCache?.key === snapshotKey ? overviewCache.data : null));
@@ -1157,29 +1109,39 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     return () => { cancelled = true; };
   }, [snapshotKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const headline = llm?.headline || fallback.headline;
+  // Per-asset LLM overviews, fetched in parallel with the portfolio read. Each card skeletons until
+  // its ticker's overview lands; we never fall back to deterministic text.
+  const [assetOverviews, setAssetOverviews] = useState<Record<string, string> | null>(
+    () => (assetOverviewCache?.key === snapshotKey ? assetOverviewCache.data : null),
+  );
+  useEffect(() => {
+    const key = snapshotKey;
+    if (!snapshot.holdings.length) { setAssetOverviews(null); return; }
+    if (assetOverviewCache?.key === key) { setAssetOverviews(assetOverviewCache.data); return; }
+    setAssetOverviews(null);
+    let cancelled = false;
+    (async () => {
+      let promise: Promise<Record<string, string> | null>;
+      if (assetOverviewInFlight?.key === key) {
+        promise = assetOverviewInFlight.promise;
+      } else {
+        promise = fetchAssetOverviews(snapshot.holdings);
+        assetOverviewInFlight = { key, promise };
+        promise.then((d) => { if (d) assetOverviewCache = { key, data: d }; }).catch(() => {}).finally(() => { if (assetOverviewInFlight?.key === key) assetOverviewInFlight = null; });
+      }
+      const data = await promise;
+      if (!cancelled && data) setAssetOverviews(data);
+    })();
+    return () => { cancelled = true; };
+  }, [snapshotKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Only the real LLM read is shown; null → the Hero pulses skeletons until it loads.
   // Trim takeaways (the risk-off "reduce" call) float to the top; stable sort keeps the rest in order.
-  const points: BriefPoint[] = [...(llm?.points || fallback.points)];
-  points.sort((a, b) => Number(b.action === "Trim") - Number(a.action === "Trim"));
+  const points: BriefPoint[] | null = llm?.points
+    ? [...llm.points].sort((a, b) => Number(b.action === "Trim") - Number(a.action === "Trim"))
+    : null;
 
-  // Opportunities: tickers in the social feeds we don't hold, ranked by Reddit mentions.
-  const opportunities = useMemo(() => {
-    const pool = new Map<string, { reddit?: RedditSocialSnapshot; videos?: YouTubeSocialVideo[] }>();
-    for (const s of bundle.reddit) { const t = norm(s.ticker); if (!heldSet.has(t)) (pool.get(t) || pool.set(t, {}).get(t)!).reddit = s; }
-    for (const [t, vids] of Object.entries(bundle.youtube)) { if (!heldSet.has(t)) (pool.get(t) || pool.set(t, {}).get(t)!).videos = vids; }
-    return [...pool.entries()]
-      .map(([ticker, d]) => ({
-        ticker,
-        reddit: d.reddit,
-        videos: d.videos,
-        pulse: synthesizeAsset({ ticker, reddit: d.reddit ?? null, videos: d.videos ?? [], newsHeadlines: [] }),
-        mentions: d.reddit?.mentions ?? 0,
-      }))
-      .sort((a, b) => b.mentions - a.mentions)
-      .slice(0, 8);
-  }, [bundle.reddit, bundle.youtube, heldSet]);
-
-  const showLoading = loading && !holdingPulses.some((p) => p.pulse.signalCount > 0) && !opportunities.length;
+  const showLoading = loading && !holdingPulses.some((p) => p.pulse.signalCount > 0);
 
   // v1 ranking + collapse: notable names on top (top one auto-expanded), quiet names collapsed to rows.
   const NOTABLE = 0.28;
@@ -1190,6 +1152,7 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
   if (signalOnly) quiet = [];
   const cardProps = (v: (typeof holdingViews)[number]) => ({
     pulse: v.pulse,
+    overview: assetOverviews?.[String(v.holding.ticker).toUpperCase()] ?? null,
     name: v.holding.name,
     quote: bundle.quotes[v.holding.ticker],
     monitor: bundle.monitor[v.holding.ticker],
@@ -1199,15 +1162,18 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
     brief: bundle.briefs[v.holding.ticker],
     reddit: redditByTicker[v.holding.ticker],
     videos: bundle.youtube[v.holding.ticker],
+    ytLeanAgent: bundle.youtubeLeans[v.holding.ticker],
+    ytOverview: bundle.youtubeSummaries[v.holding.ticker],
     markets: bundle.markets[v.holding.ticker],
     news: bundle.news[v.holding.ticker],
+    newsSummary: bundle.newsOverviews[v.holding.ticker],
     action: v.action,
     conviction: v.conviction,
   });
 
   return (
     <section aria-label="Hivemind" className="space-y-3">
-      <Hero pulse={portfolioPulse} headline={headline} points={points} />
+      <Hero pulse={portfolioPulse} points={points} />
 
       <LiveNewsCard />
 
@@ -1222,21 +1188,6 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
                 <TogglePill active={signalOnly} onClick={() => setSignalOnly((v) => !v)} icon={<SlidersHorizontal className="h-3.5 w-3.5" />}>Signal only</TogglePill>
                 <TogglePill active={highConviction} onClick={() => setHighConviction((v) => !v)}>High conviction</TogglePill>
               </div>
-
-              {/* v1 "since you last checked" delta feed */}
-              {deltas.length > 0 && (
-                <GlassCard className="px-4 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-[#737373]">Since you last checked</p>
-                  <div className="mt-2 space-y-1.5">
-                    {deltas.map((d, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[13px] leading-snug text-white/75">
-                        {d.dir === "up" ? <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-emerald-400" /> : d.dir === "down" ? <ArrowDownRight className="h-3.5 w-3.5 shrink-0 text-rose-400" /> : <span className="h-1 w-1 shrink-0 rounded-full bg-white/40" />}
-                        <span>{d.text}</span>
-                      </div>
-                    ))}
-                  </div>
-                </GlassCard>
-              )}
 
               {/* v1 ranked notable holdings (top one auto-expanded) */}
               {notable.map((v, i) => <HoldingCard key={v.holding.ticker} {...cardProps(v)} defaultOpen={i === 0} />)}
@@ -1257,17 +1208,6 @@ export function Hivemind({ holdings, user }: { holdings: Array<{ ticker: string;
           )}
 
           {held.length === 0 && <p className="px-1 pt-4 text-center text-[13px] text-[#8a8a8a]">Add holdings on the Portfolio tab to see your portfolio pulse.</p>}
-
-          {opportunities.length > 0 && (
-            <>
-              <SectionHeading hint="not in your portfolio">Opportunities</SectionHeading>
-              <GlassCard className="flex items-center gap-2.5 px-4 py-2.5">
-                <Flame className="h-4 w-4 shrink-0 text-amber-300/80" />
-                <p className="text-[12px] leading-snug text-white/60">Tickers lighting up across Reddit &amp; YouTube that you don&apos;t hold, surfaced as market opportunities.</p>
-              </GlassCard>
-              {opportunities.map((o) => <OpportunityCard key={o.ticker} pulse={o.pulse} reddit={o.reddit} videos={o.videos} />)}
-            </>
-          )}
         </>
       )}
     </section>

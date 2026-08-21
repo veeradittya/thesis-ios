@@ -7,9 +7,9 @@ import { motion } from "motion/react";
 export type DashTab = "overview" | "news" | "markets" | "extra";
 
 const TABS: { id: DashTab; label: string }[] = [
-  { id: "overview", label: "Overview" },
   { id: "extra", label: "Hivemind" },
   { id: "news", label: "News" },
+  { id: "overview", label: "Allocation" },
   { id: "markets", label: "Prediction Markets" },
 ];
 

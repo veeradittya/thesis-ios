@@ -16,7 +16,11 @@ export interface YouTubeSocialSnapshot {
   videos: YouTubeSocialVideo[];
   generatedAt: string;
   windowHours: number;
+  lean: string | null; // the analyst agent's directional read (Strong Buy … Strong Sell), if provided
+  summary: string | null; // the agent's short overview of the YouTube signal for this asset
 }
+
+const YT_LEAN_LABELS = /^(Strong Buy|Buy|Neutral|Sell|Strong Sell)$/;
 
 export interface YouTubeSocialResponse {
   snapshots: YouTubeSocialSnapshot[];
@@ -61,11 +65,14 @@ export function normalizeYouTubeSnapshot(value: unknown): YouTubeSocialSnapshot 
       transcriptExcerpt: text(item.transcriptExcerpt, 600) || null,
     }];
   });
+  const lean = text(raw.lean, 12);
   return {
     ticker,
     videos,
     generatedAt,
     windowHours: Number.isFinite(Number(raw.windowHours)) ? Math.max(1, Number(raw.windowHours)) : 24,
+    lean: YT_LEAN_LABELS.test(lean) ? lean : null,
+    summary: text(raw.summary, 700) || null,
   };
 }
 

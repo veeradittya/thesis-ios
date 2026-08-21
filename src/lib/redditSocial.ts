@@ -15,11 +15,14 @@ export interface RedditSocialSnapshot {
   uniqueThreads: number;
   mentionChangePct: number | null;
   summary: string;
+  lean: string | null; // the analyst agent's directional read (Strong Buy … Strong Sell), if provided
   topSources: RedditSocialSource[];
   generatedAt: string;
   windowStart: string;
   windowEnd: string;
 }
+
+const LEAN_LABELS = /^(Strong Buy|Buy|Neutral|Sell|Strong Sell)$/;
 
 export interface RedditSocialResponse {
   snapshots: RedditSocialSnapshot[];
@@ -62,6 +65,7 @@ export function normalizeRedditSnapshot(value: unknown): RedditSocialSnapshot | 
   });
 
   const change = raw.mentionChangePct == null ? null : Number(raw.mentionChangePct);
+  const lean = cleanText(raw.lean, 12);
   return {
     ticker,
     windowHours: finiteNonNegative(raw.windowHours) ?? 168,
@@ -72,6 +76,7 @@ export function normalizeRedditSnapshot(value: unknown): RedditSocialSnapshot | 
     uniqueThreads: finiteNonNegative(raw.uniqueThreads) ?? 0,
     mentionChangePct: Number.isFinite(change) ? change : null,
     summary,
+    lean: LEAN_LABELS.test(lean) ? lean : null,
     topSources,
     generatedAt,
     windowStart: cleanText(raw.windowStart, 40),

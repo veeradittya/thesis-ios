@@ -206,7 +206,7 @@ export function MonacoHome() {
   const [awaitedAfterOnboard, setAwaitedAfterOnboard] = useState(false); // just finished onboarding → show the "first brief" countdown
   const [firstBriefReady, setFirstBriefReady] = useState<boolean | null>(null); // has THIS account's first brief been generated? (null=unknown)
   const [mobilePage, setMobilePage] = useState<"brief" | "dashboard" | "portfolio" | "account">("brief"); // phone-only: which stack to show
-  const [dashTab, setDashTab] = useState<DashTab>("news"); // phone-only: Dashboard sub-tab (News · Prediction Markets · Extra)
+  const [dashTab, setDashTab] = useState<DashTab>("extra"); // phone-only: Dashboard sub-tab. Default = Hivemind ("extra"). Order: Hivemind · Chat · News · Overview (Prediction Markets hidden).
   // Native iOS shell renders its OWN glass bottom-nav + Dashboard slider. It sets this flag before our JS
   // runs; when present we yield our web nav/slider, pad for the floating native bars, and drive/report tab
   // state over a bridge. Absent (desktop / mobile-web) → everything below is unchanged. Read once via a
@@ -228,7 +228,9 @@ export function MonacoHome() {
     } catch {}
   }, []);
   // Contract map between our internal Dashboard sub-tab ids and the native slider's strings.
-  const DASH_TO_NATIVE: Record<DashTab, "overview" | "analyst" | "news" | "markets"> = { overview: "overview", extra: "analyst", news: "news", markets: "markets" };
+  // New native dash contract (Prediction Markets dropped): Hivemind · Chat · News · Overview.
+  // The iOS shell must map these values to its reworked slider (see the handoff note).
+  const DASH_TO_NATIVE: Record<DashTab, "hivemind" | "news" | "overview" | "markets"> = { extra: "hivemind", news: "news", overview: "overview", markets: "markets" };
   // Inbound bridge: let the native bars drive our tab state (no reload). Defined only in native mode.
   useEffect(() => {
     if (!nativeChrome || typeof window === "undefined") return;
@@ -237,7 +239,7 @@ export function MonacoHome() {
       if (tab === "brief" || tab === "dashboard" || tab === "portfolio" || tab === "account") setMobilePage(tab);
     };
     w.__thesisSetDashTab = (sub) => {
-      const map: Record<string, DashTab> = { overview: "overview", analyst: "extra", news: "news", markets: "markets" };
+      const map: Record<string, DashTab> = { overview: "overview", analyst: "extra", hivemind: "extra", news: "news", markets: "markets" };
       if (map[sub]) setDashTab(map[sub]);
     };
     return () => { delete w.__thesisSetTab; delete w.__thesisSetDashTab; };

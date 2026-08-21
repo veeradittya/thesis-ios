@@ -40,6 +40,17 @@ async function query(sql: string, args: Arg[] = []): Promise<Record<string, stri
   return result.rows.map((row) => Object.fromEntries(row.map((cell, i) => [names[i], cell?.value ?? null])));
 }
 
+// Public read-only query: runs a single SELECT and returns column order + rows. Guards that the SQL is a
+// lone SELECT so exporting this can never become a write vector (callers should still validate/parametrize).
+// Used by the chat `run_sql` tool's read-only escape hatch. Every cell comes back as a string (or null).
+export async function readOnlyQuery(sql: string): Promise<{ columns: string[]; rows: Record<string, string | null>[] }> {
+  if (!/^\s*select\b/i.test(sql)) throw new Error("readOnlyQuery accepts a single SELECT only");
+  const [result] = await pipeline([{ type: "execute", stmt: { sql, args: [] } }]);
+  const columns = result.cols.map((c) => c.name);
+  const rows = result.rows.map((row) => Object.fromEntries(row.map((cell, i) => [columns[i], cell?.value ?? null])));
+  return { columns, rows };
+}
+
 export interface MonitorResult {
   ticker: string;
   name: string;
@@ -259,6 +270,24 @@ export async function getRedditSocialRows(tickers: string[]): Promise<string[]> 
     return rows.map((r) => r.payload).filter((v): v is string => Boolean(v));
   } catch {
     return []; // table does not exist until the first successful publication
+  }
+}
+
+export interface NewsOverviewRow {
+  summary: string | null;
+  lean: string | null;
+}
+// The analyst agent's per-ticker news overview + directional lean (written by the news agent).
+export async function getNewsOverviews(tickers: string[]): Promise<Record<string, NewsOverviewRow>> {
+  const uniq = [...new Set(tickers.map((t) => t.trim().toUpperCase()).filter(Boolean))];
+  if (!uniq.length) return {};
+  try {
+    const rows = await query(`SELECT ticker, summary, lean FROM news_overviews WHERE ticker IN (${uniq.map(() => "?").join(",")})`, uniq);
+    const out: Record<string, NewsOverviewRow> = {};
+    for (const r of rows) if (r.ticker) out[r.ticker] = { summary: r.summary, lean: r.lean };
+    return out;
+  } catch {
+    return {}; // table does not exist until the news agent's first publication
   }
 }
 

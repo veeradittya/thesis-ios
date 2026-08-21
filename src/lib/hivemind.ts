@@ -49,6 +49,7 @@ export interface AssetSignals {
   newsCount?: number;
   newsHeadlines?: string[];
   newsItems?: Array<{ headline: string; url: string }>; // headline + source link
+  newsLean?: string | null; // the news agent's directional read (Strong Buy … Strong Sell), if provided
 }
 
 // A fact shown at the deepest drill-down level, optionally linked to its source.
@@ -204,12 +205,19 @@ function redditSignal(s: AssetSignals): SignalContribution {
   if (!snap || !present) {
     return { key: "reddit", present: false, score: 0, magnitude: 0, weight: 0, label: "No chatter" };
   }
-  const tone = lexiconTone(snap.summary);
+  // Direction: prefer the analyst agent's explicit lean (exact, so the displayed tag matches it);
+  // otherwise fall back to the summary's lexicon tone, lightly amplified by mention momentum.
+  const agentScore = leanToScore(snap.lean);
   // Attention magnitude from raw volume (log-scaled: ~1 by a few hundred mentions).
   const magnitude = clamp(Math.log10(snap.mentions + 1) / 2.4, 0, 1);
-  // Direction is tone, lightly amplified by week-over-week momentum sign when we have it.
-  const momentum = snap.mentionChangePct == null ? 0 : clamp(snap.mentionChangePct / 100) * 0.25;
-  const score = clamp(tone + (tone !== 0 ? momentum : 0));
+  let score: number;
+  if (agentScore != null) {
+    score = agentScore;
+  } else {
+    const tone = lexiconTone(snap.summary);
+    const momentum = snap.mentionChangePct == null ? 0 : clamp(snap.mentionChangePct / 100) * 0.25;
+    score = clamp(tone + (tone !== 0 ? momentum : 0));
+  }
   const volPhrase = magnitude > 0.66 ? "loud" : magnitude > 0.33 ? "active" : "quiet";
   return {
     key: "reddit",
@@ -264,9 +272,11 @@ function newsSignal(s: AssetSignals): SignalContribution {
   if (!present) {
     return { key: "news", present: false, score: 0, magnitude: 0, weight: 0, label: "No news" };
   }
-  const tone = lexiconTone(heads.join(" . "));
+  // Direction: prefer the news agent's explicit lean (so the tag matches its overview); else headline tone.
+  const agentScore = leanToScore(s.newsLean);
+  const score = agentScore != null ? agentScore : clamp(lexiconTone(heads.join(" . ")));
   const magnitude = clamp(0.3 + count * 0.08, 0, 1);
-  return { key: "news", present: true, score: clamp(tone), magnitude, weight: 0, label: `${count} article${count > 1 ? "s" : ""}` };
+  return { key: "news", present: true, score, magnitude, weight: 0, label: `${count} article${count > 1 ? "s" : ""}` };
 }
 
 function priceSignal(s: AssetSignals): SignalContribution {
@@ -645,6 +655,49 @@ export function leanLabel(score: number): SignalLean {
   return "Strong Sell";
 }
 
+// Inverse of leanLabel: a representative score for an explicit label, so an agent-provided lean
+// round-trips back to the same label through leanLabel().
+const LEAN_SCORE: Record<SignalLean, number> = { "Strong Buy": 0.7, Buy: 0.3, Neutral: 0, Sell: -0.3, "Strong Sell": -0.7 };
+export function parseLean(v: unknown): SignalLean | null {
+  return typeof v === "string" && v in LEAN_SCORE ? (v as SignalLean) : null;
+}
+export function leanToScore(v: unknown): number | null {
+  const l = parseLean(v);
+  return l ? LEAN_SCORE[l] : null;
+}
+
+// Short, always-fresh overview of the prediction-market signal (markets move intraday, so this is
+// computed deterministically from the live odds rather than pre-written by the agent).
+export function marketsOverview(markets: AssetMarket[]): string {
+  const n = markets.length;
+  const priced = markets.filter((m) => typeof m.yes === "number");
+  if (!priced.length) return `Prediction markets are open across ${n} question${n === 1 ? "" : "s"}, without a clear directional read yet.`;
+  let dir = 0;
+  let cnt = 0;
+  for (const m of priced) {
+    const q = m.question.toLowerCase();
+    const up = /\b(above|over|exceed|reach|hit|higher|at least)\b/.test(q);
+    const down = /\b(below|under|drop|fall|lower|less than|recession|crash)\b/.test(q);
+    if (up && !down) { dir += (m.yes as number) - 0.5; cnt++; }
+    else if (down && !up) { dir += 0.5 - (m.yes as number); cnt++; }
+  }
+  const avg = cnt ? dir / cnt : 0;
+  const lean = cnt === 0 ? "show no clear directional tilt" : avg > 0.05 ? "lean to the upside" : avg < -0.05 ? "lean to the downside" : "are split";
+  const top = priced.slice().sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))[0];
+  const topPart = top ? ` The most-traded question puts "${top.question}" at ${Math.round((top.yes as number) * 100)}% yes.` : "";
+  return `Prediction markets ${lean} across ${n} active market${n === 1 ? "" : "s"}.${topPart}`;
+}
+
+// Short overview of the news signal — count + tone skew from recent headlines.
+export function newsOverview(headlines: string[], count?: number): string {
+  const heads = headlines.filter(Boolean);
+  const n = count ?? heads.length;
+  if (!n || !heads.length) return "No recent news coverage for this holding.";
+  const tone = lexiconTone(heads.join(" . "));
+  const skew = tone > 0.15 ? "skews positive" : tone < -0.15 ? "skews negative" : "is balanced";
+  return `Coverage across ${n} recent article${n === 1 ? "" : "s"} ${skew}, led by "${heads[0].slice(0, 120)}".`;
+}
+
 // The lean for one signal family off a computed pulse (null when that family has no signal).
 export function signalLean(pulse: AssetPulse, key: SignalKey): SignalLean | null {
   const c = pulse.contributions.find((x) => x.key === key);
@@ -655,7 +708,10 @@ export function signalLean(pulse: AssetPulse, key: SignalKey): SignalLean | null
 // (titles + agent summaries + transcript excerpts), using the same lexicon the news/Reddit tones use.
 export function youtubeLean(
   videos: Array<{ title?: string | null; videoSummary?: string | null; transcriptExcerpt?: string | null }>,
+  explicit?: unknown, // the analyst agent's explicit youtube lean, if provided — takes precedence
 ): SignalLean | null {
+  const agent = parseLean(explicit);
+  if (agent) return agent;
   if (!videos?.length) return null;
   const text = videos
     .map((v) => [v.title, v.videoSummary, v.transcriptExcerpt].filter(Boolean).join(". "))
